@@ -1,0 +1,50 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local env/config
+.env
+.env.*
+!.env.example
+
+# Editor / OS files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs and temp files
+logs/
+*.log
+*.tmp
+*.temp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build / packaging outputs
+build/
+dist/
+*.egg-info/
+
+# Model outputs and checkpoints
+models/lid_model/
+models/checkpoints/
+models/*checkpoint*/
+**/pytorch_model.bin
+**/model.safetensors
+**/training_args.bin
+**/optimizer.pt
+**/scheduler.pt
+**/trainer_state.json

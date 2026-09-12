@@ -86,6 +86,8 @@ def compute_metrics(pred):
 def main(train_path="/content/lid_train.jsonl", hold_path="/content/lid_holdout.jsonl", independent_valid_path=None):
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     model = AutoModelForTokenClassification.from_pretrained(model_name, num_labels=len(label_list))
+    model.config.label2id = label2id
+    model.config.id2label = {i: label for i, label in enumerate(label_list)}
 
     train_ds = prepare_hf_dataset(train_path)
     eval_ds = prepare_hf_dataset(hold_path)

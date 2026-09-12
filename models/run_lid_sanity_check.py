@@ -15,14 +15,14 @@ import os
 import re
 from typing import List
 
-from transformers import AutoModelForTokenClassification, AutoTokenizer
-
 
 HINDI_MARKERS = {
     "hai", "haii", "hain", "ho", "hoga", "hoge", "kar", "ki", "ke", "ka",
     "mein", "me", "nahi", "aur", "se", "ko", "bhi", "par", "ye", "vo", "aap",
     "sir", "mam", "bhai", "ji", "aaj", "kal", "aur", "toh", "kya"
 }
+
+LABEL_LIST = ["HI", "EN", "OTHER"]
 
 
 def load_texts(path: str) -> List[str]:
@@ -88,6 +88,8 @@ def build_label_lookup(model):
             lookup[int(key)] = value
         except (TypeError, ValueError):
             continue
+    if not lookup or all(str(v).startswith("LABEL_") for v in lookup.values()):
+        lookup = {idx: label for idx, label in enumerate(LABEL_LIST)}
     return lookup
 
 
@@ -119,6 +121,8 @@ if __name__ == "__main__":
         raise FileNotFoundError(f"Model directory not found: {args.model_dir}")
     if not os.path.exists(args.holdout_path):
         raise FileNotFoundError(f"Holdout file not found: {args.holdout_path}")
+
+    from transformers import AutoModelForTokenClassification, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_dir, use_fast=True)
     model = AutoModelForTokenClassification.from_pretrained(args.model_dir)

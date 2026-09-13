@@ -306,26 +306,18 @@ class TranslationDataset(Dataset):
             truncation=True,
             padding=False,
         )
-        # IndicTransTokenizer._src_tokenize() asserts the first token is a valid
-        # language tag. Raw target text (e.g. "@handle ...") has no tag, so we
-        # run it through IndicProcessor with reversed languages — this prepends
-        # ">>eng_Latn<<" making the tokenizer happy, without altering the text.
-        tgt_with_tag = IP.preprocess_batch([tgt], src_lang=TGT_LANG, tgt_lang=SRC_LANG)[0]
-        labels = self.tokenizer(
-            tgt_with_tag,
-            max_length=self.max_tgt_len + 1,  # +1 to compensate for the tag token we strip below
-            truncation=True,
-            padding=False,
-        )
-        # Strip the leading language-tag token from the label IDs.
-        # IP.preprocess_batch prepends a language tag (e.g. "eng_Latn") which
-        # the tokenizer encodes as token ID 0 of labels. Decoder labels must
-        # contain only real target-text tokens; the tag token causes an
-        # out-of-bounds index in the LM head during the forward pass.
-        label_ids = labels["input_ids"]
-        if len(label_ids) > 1:
-            label_ids = label_ids[1:]  # drop the language tag token
-        model_inputs["labels"] = label_ids
+        # IndicTransTokenizer has separate source and target SPMs. Labels MUST
+        # use the target vocabulary (via as_target_tokenizer). Using source-mode
+        # tokenization produces IDs from the wrong vocab — out-of-range for the
+        # LM head — which causes a CUDA assert in F.cross_entropy.
+        with self.tokenizer.as_target_tokenizer():
+            labels = self.tokenizer(
+                tgt,
+                max_length=self.max_tgt_len,
+                truncation=True,
+                padding=False,
+            )
+        model_inputs["labels"] = labels["input_ids"]
         return model_inputs
 
 
@@ -357,17 +349,18 @@ def generate_translations(model, tokenizer, pairs, batch_size=16, device="cuda")
         with torch.no_grad():
             output_ids = model.generate(
                 **inputs,
-                # IndicTrans2-indic-en-1B is a dedicated Indic→English model;
-                # its decoder_start_token_id is baked into the model config.
-                # Do NOT pass forced_bos_token_id — passing None causes the
-                # model to generate degenerate output (empty / single-comma).
+                # forced_bos_token_id tells the decoder which language to generate.
+                # Without it the decoder outputs garbage (single comma, etc.).
+                # _tgt_bos_id is resolved in main() via convert_tokens_to_ids.
+                forced_bos_token_id=_tgt_bos_id,
                 num_beams=4,
                 max_new_tokens=128,
                 early_stopping=True,
                 use_cache=False,  # see Patch 6: IndicTrans2 custom code breaks on newer Cache objects
             )
 
-        decoded_raw = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        with tokenizer.as_target_tokenizer():
+            decoded_raw = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
         # Debug: show raw decoded output on first batch to diagnose generation issues
         if i == 0:
             print(f"  [DEBUG] raw decoded sample: {decoded_raw[:2]}")
@@ -478,6 +471,50 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
     model = disable_kv_cache(load_indictrans_model(args.model_name))
     model.to(device)
+
+    # ── Patch 8: Restore as_target_tokenizer() ─────────────────────────────────
+    # as_target_tokenizer() was removed from newer transformers versions.
+    # IndicTransTokenizer has two SPMs: _src_tokenize (source vocabulary) and
+    # _tgt_tokenize (target vocabulary). The LM head maps to the TARGET vocab,
+    # so labels MUST be tokenized with _tgt_tokenize. Without this patch:
+    #   - Label IDs are from the source vocab → out-of-range for LM head
+    #   - F.cross_entropy triggers CUDA device-side assert
+    #   - batch_decode also uses wrong vocab → garbled / empty output
+    # Fix: re-add as_target_tokenizer() to the tokenizer instance by temporarily
+    # swapping self._tokenize with self._tgt_tokenize.
+    from contextlib import contextmanager as _cm
+
+    if not hasattr(tokenizer, 'as_target_tokenizer'):
+        if hasattr(tokenizer, '_tgt_tokenize'):
+            @_cm
+            def _as_tgt_tokenizer(tok=tokenizer):
+                _orig = tok._tokenize
+                tok._tokenize = tok._tgt_tokenize
+                try:
+                    yield
+                finally:
+                    tok._tokenize = _orig
+            tokenizer.as_target_tokenizer = _as_tgt_tokenizer
+            print("  Patched tokenizer.as_target_tokenizer() via _tgt_tokenize.")
+        else:
+            # Fallback: no-op context manager — labels may be imperfect
+            @_cm
+            def _as_tgt_tokenizer_noop():
+                print("  WARNING: _tgt_tokenize not found; using source tokenizer for labels.")
+                yield
+            tokenizer.as_target_tokenizer = _as_tgt_tokenizer_noop
+
+    # Get the forced BOS token ID for target language (needed for generation).
+    # Without it the decoder doesn’t know to generate English and outputs garbage.
+    _tgt_bos_id = None
+    for _lang_str in [TGT_LANG, f"[{TGT_LANG}]", f"<{TGT_LANG}>"]:
+        _candidate = tokenizer.convert_tokens_to_ids(_lang_str)
+        _unk = getattr(tokenizer, 'unk_token_id', None)
+        if _candidate is not None and _candidate != _unk:
+            _tgt_bos_id = _candidate
+            break
+    print(f"  Target language BOS token: {TGT_LANG!r} → ID {_tgt_bos_id}")
+    # ── End Patch 8 ───────────────────────────────────────────────────────
 
     # ── Build datasets ─────────────────────────────────────────────────────────
     train_dataset = TranslationDataset(train_pairs, tokenizer, args.max_src_len, args.max_tgt_len)

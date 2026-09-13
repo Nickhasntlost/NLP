@@ -306,12 +306,17 @@ class TranslationDataset(Dataset):
             truncation=True,
             padding=False,
         )
+        # IndicTransTokenizer._src_tokenize() asserts the first token is a valid
+        # language tag. Raw target text (e.g. "@handle ...") has no tag, so we
+        # run it through IndicProcessor with reversed languages — this prepends
+        # ">>eng_Latn<<" making the tokenizer happy, without altering the text.
+        tgt_with_tag = IP.preprocess_batch([tgt], src_lang=TGT_LANG, tgt_lang=SRC_LANG)[0]
         labels = self.tokenizer(
-                tgt,
-                max_length=self.max_tgt_len,
-                truncation=True,
-                padding=False,
-            )
+            tgt_with_tag,
+            max_length=self.max_tgt_len,
+            truncation=True,
+            padding=False,
+        )
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
 
@@ -344,9 +349,10 @@ def generate_translations(model, tokenizer, pairs, batch_size=16, device="cuda")
         with torch.no_grad():
             output_ids = model.generate(
                 **inputs,
-                forced_bos_token_id=tokenizer.lang_code_to_id[TGT_LANG]
-                if hasattr(tokenizer, "lang_code_to_id")
-                else None,
+                # IndicTrans2-indic-en-1B is a dedicated Indic→English model;
+                # its decoder_start_token_id is baked into the model config.
+                # Do NOT pass forced_bos_token_id — passing None causes the
+                # model to generate degenerate output (empty / single-comma).
                 num_beams=4,
                 max_new_tokens=128,
                 early_stopping=True,

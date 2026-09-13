@@ -1,0 +1,82 @@
+PHINC Row-Swap / English-Source Investigation Report
+=======================================================
+Total pairs inspected: 11177
+
+Detection criteria:
+  SWAP: target Hindi-marker score > source score by >15%
+  ENG-SRC: source contains zero Hindi markers / Devanagari
+
+Findings:
+  Swapped pairs (target more Hindi than source): 5
+  English-only source (no Hindi content): 1499
+  Both flags: 12
+  TOTAL FLAGGED (unique rows): 1516 (13.6% of corpus)
+
+Decision: FILTER OUT flagged rows — rate is meaningful
+
+Post-filter corpus: 9661 pairs
+  Train (90%): 8694
+  Validation (10%): 967
+
+=======================================================
+Sample flagged rows (up to 15 examples):
+
+[ENG-SRC] Row 261 | src_score=0.00 tgt_score=0.00
+  SRC: bb will be huge blockbuster. aap jiyo hajaro saal.
+  TGT: bb will be huge blockbuster. you may live 1000 years.
+
+[ENG-SRC] Row 5328 | src_score=0.00 tgt_score=0.00
+  SRC: he is cute . . <3
+  TGT: he is cute.
+
+[ENG-SRC] Row 4433 | src_score=0.00 tgt_score=0.00
+  SRC: i'm going to clutch at buster's billiards &amp; backroom in lexington , ky - dec 28 http/URL
+  TGT: i am going to clutch at buster's billiards &amp; backroom in lexington , ky - dec 28 http/URL
+
+[SWAP] Row 6720 | src_score=0.31 tgt_score=0.50
+  SRC: "Chhupp kar ganoo sab tere liye hua hai"pic.twitter.com/dg4SBPfwwe
+  TGT: "Gnup sab tere liye hai", back.
+
+[ENG-SRC] Row 9785 | src_score=0.00 tgt_score=0.00
+  SRC: Ramayan chhod.. Pehle quran to poori padh lehttps://twitter.com/brumbyOz/status/742982491871531008Â â€¦
+  TGT: finish quran before you start reading Ramayan https://twitter.com/brumbyOz/status/742982491871531008
+
+[ENG-SRC] Row 2109 | src_score=0.00 tgt_score=0.00
+  SRC: :D Degree Dikhau?
+  TGT: :D should i show the degree?
+
+[ENG-SRC] Row 8143 | src_score=0.00 tgt_score=0.00
+  SRC: @sachin_rt & Suresh Prabhu , railway minister belong to same school , Shardashram vidya mandir ... #RailBudget2015
+  TGT: @sachin_rt and suresh prabhu, railway minister belong to same school, shardashram vidya mandir #RailBudget2015
+
+[ENG-SRC] Row 6437 | src_score=0.00 tgt_score=0.00
+  SRC: @Blusafire Tumne to shaadi karke dil hi tod diya
+  TGT: @Blusafire You broke my heart by marrying.
+
+[ENG-SRC] Row 2493 | src_score=0.00 tgt_score=0.00
+  SRC: @251ravi dekh liya?
+  TGT: @251ravi did you see it?
+
+[ENG-SRC] Row 5049 | src_score=0.00 tgt_score=0.00
+  SRC: my xbox live ends tomorrow :( mw3 and gears3 all day ! hit me up !
+  TGT: my xbox live ends tomorrow. moder warfare 3 and gears of war 3 all day ! hit me up !
+
+[ENG-SRC] Row 7026 | src_score=0.00 tgt_score=0.00
+  SRC: @premlata_rai tujhe pehle ban lagta :-P
+  TGT: @ Premlata_Rai, you seem to be the first: -P
+
+[ENG-SRC] Row 9755 | src_score=0.00 tgt_score=0.00
+  SRC: To whoever posted this , we got your message , PM us . Back around 1999 , we have many swimmers in common . ~ Ed
+  TGT: To whoever posted this , we got your message , send a personal message to us . Back around 1999 , we have many swimmers 
+
+[ENG-SRC] Row 2272 | src_score=0.00 tgt_score=0.00
+  SRC: Hallo salman vaiya ....
+  TGT: hello brother salman ....
+
+[ENG-SRC] Row 9930 | src_score=0.00 tgt_score=0.00
+  SRC: it's november 1 so you know what that means .you'll see valentine's day stuff at walmart soon .#celebratetherightholiday
+  TGT: it's november 1st so you know what that means .you'll see valentine's day stuff at walmart soon .#celebratetherightholid
+
+[ENG-SRC] Row 10936 | src_score=0.00 tgt_score=0.00
+  SRC: I'm vry exited... only 3 min remaining
+  TGT: i’m very excited. only 3 minutes remaining.

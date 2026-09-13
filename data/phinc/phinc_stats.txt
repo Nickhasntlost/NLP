@@ -1,0 +1,29 @@
+PHINC Dataset — Phase 4 Preparation Statistics
+==================================================
+Source: veezbo/phinc (HuggingFace)
+Download date: 2026-09-13
+Raw rows from HF: 13738
+
+Quality Filter Results:
+  Dropped (empty src or tgt): 0
+  Dropped (too short <3 chars): 228
+  Dropped (identical src==tgt): 287
+  Dropped (src > 120 chars): 2045
+  Dropped (duplicate pairs): 1
+  KEPT AFTER FILTERING: 11177
+
+Split:
+  Train (90%): 10059 pairs
+  Validation (10%): 1118 pairs
+  Random seed: 42
+
+Corpus Statistics (post-filter):
+  Avg source length (chars): 64.6
+  Avg target length (chars): 63.9
+  Min/Max source length: 3 / 120
+  Min/Max target length: 3 / 152
+
+Files:
+  C:\Users\User\Desktop\NLP\data\phinc\phinc_raw.jsonl
+  C:\Users\User\Desktop\NLP\data\phinc\phinc_train.jsonl
+  C:\Users\User\Desktop\NLP\data\phinc\phinc_validation.jsonl

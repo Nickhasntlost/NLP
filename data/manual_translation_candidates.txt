@@ -1,0 +1,125 @@
+# Manual Translation Candidates — Phase 4
+# Instructions: Fill in the English translation on the blank line after each sentence.
+# Keep the source sentence exactly as shown. Do not edit or fix the source.
+# Seed: 42 | Selected: 30 of 5309 candidates
+
+1. SOURCE:  Koi Nhi Bodega Scripted hai
+   TOKENS (5): Koi | Nhi | Bodega | Scripted | hai
+   TRANSLATION: 
+
+2. SOURCE:  Sirf Khan sir ki jaayega
+   TOKENS (5): Sirf | Khan | sir | ki | jaayega
+   TRANSLATION: 
+
+3. SOURCE:  Woh din bhi kya din the
+   TOKENS (6): Woh | din | bhi | kya | din | the
+   TRANSLATION: 
+
+4. SOURCE:  Sir aap bahut achha padhte hu
+   TOKENS (6): Sir | aap | bahut | achha | padhte | hu
+   TRANSLATION: 
+
+5. SOURCE:  Kon kon aaj dekh rha hai
+   TOKENS (6): Kon | kon | aaj | dekh | rha | hai
+   TRANSLATION: 
+
+6. SOURCE:  6 36 tiktok giraya hai mene
+   TOKENS (6): 6 | 36 | tiktok | giraya | hai | mene
+   TRANSLATION: 
+
+7. SOURCE:  Ashish Bhai missing your comedy videos
+   TOKENS (6): Ashish | Bhai | missing | your | comedy | videos
+   TRANSLATION: 
+
+8. SOURCE:  PII 9dc62185978fe77f tu pee mara lol@
+   TOKENS (6): PII | 9dc62185978fe77f | tu | pee | mara | lol
+   TRANSLATION: 
+
+9. SOURCE:  Bhai wo din kitne suhane the
+   TOKENS (6): Bhai | wo | din | kitne | suhane | the
+   TRANSLATION: 
+
+10. SOURCE:  36 Years old year old ki hongi
+   TOKENS (7): 36 | Years | old | year | old | ki | hongi
+   TRANSLATION: 
+
+11. SOURCE:  Bro pronunciation hi galat pronounce kar raha he
+   TOKENS (8): Bro | pronunciation | hi | galat | pronounce | kar | raha | he
+   TRANSLATION: 
+
+12. SOURCE:  Sar Mai neet ki taiyari karna chahti hu
+   TOKENS (8): Sar | Mai | neet | ki | taiyari | karna | chahti | hu
+   TRANSLATION: 
+
+13. SOURCE:  Are yaar isme limite hai free usase ki
+   TOKENS (8): Are | yaar | isme | limite | hai | free | usase | ki
+   TRANSLATION: 
+
+14. SOURCE:  Piyush ko bhi dikha do yrr video me
+   TOKENS (8): Piyush | ko | bhi | dikha | do | yrr | video | me
+   TRANSLATION: 
+
+15. SOURCE:  Sir me bhi apki class join karna chahati hu
+   TOKENS (9): Sir | me | bhi | apki | class | join | karna | chahati | hu
+   TRANSLATION: 
+
+16. SOURCE:  3 36 chal be panch foot ke baune was epic
+   TOKENS (10): 3 | 36 | chal | be | panch | foot | ke | baune | was | epic
+   TRANSLATION: 
+
+17. SOURCE:  Btw bro Navasi 89 hota hai aur 79 unyasi hota h
+   TOKENS (11): Btw | bro | Navasi | 89 | hota | hai | aur | 79 | unyasi | hota | h
+   TRANSLATION: 
+
+18. SOURCE:  17 18 19 20 physics Walah ko de sab log kiss
+   TOKENS (11): 17 | 18 | 19 | 20 | physics | Walah | ko | de | sab | log | kiss
+   TRANSLATION: 
+
+19. SOURCE:  Bnna hai to Dr engineer bno isa me kya rakha hai
+   TOKENS (11): Bnna | hai | to | Dr | engineer | bno | isa | me | kya | rakha | hai
+   TRANSLATION: 
+
+20. SOURCE:  Par Adarsh Ki ja to me lipta Parivar to yaha hai
+   TOKENS (11): Par | Adarsh | Ki | ja | to | me | lipta | Parivar | to | yaha | hai
+   TRANSLATION: 
+
+21. SOURCE:  टी शर्ट चाहिए किसी की भी हो दिल तो PW ka hai
+   TOKENS (12): टी | शर्ट | चाहिए | किसी | की | भी | हो | दिल | तो | PW | ka | hai
+   TRANSLATION: 
+
+22. SOURCE:  Upsc Mains me jeans me ladki jarhi shirt me kuch bhi video
+   TOKENS (12): Upsc | Mains | me | jeans | me | ladki | jarhi | shirt | me | kuch | bhi | video
+   TRANSLATION: 
+
+23. SOURCE:  Mai ek baar try ki thi same aise hi exam mein ki sahi ho gya
+   TOKENS (15): Mai | ek | baar | try | ki | thi | same | aise | hi | exam | mein | ki | sahi | ho | gya
+   TRANSLATION: 
+
+24. SOURCE:  Ab to jamin a jana chahiye 2026 ho gaya aur kitna din girta hi rahoge
+   TOKENS (15): Ab | to | jamin | a | jana | chahiye | 2026 | ho | gaya | aur | kitna | din | girta | hi | rahoge
+   TRANSLATION: 
+
+25. SOURCE:  rupali 2 song launch kar ek special dedication deni hai kafi personal ho gya h matter
+   TOKENS (16): rupali | 2 | song | launch | kar | ek | special | dedication | deni | hai | kafi | personal | ho | gya | h | matter
+   TRANSLATION: 
+
+26. SOURCE:  Sir 80% karne ke liye minimum kitna time padhna chahie 10th me please sir take my question
+   TOKENS (17): Sir | 80 | karne | ke | liye | minimum | kitna | time | padhna | chahie | 10th | me | please | sir | take | my | question
+   TRANSLATION: 
+
+27. SOURCE:  Mam kya hindi medium sa chemistry optional select kara tho optional ka paper english ma lekha saktha h kya
+   TOKENS (19): Mam | kya | hindi | medium | sa | chemistry | optional | select | kara | tho | optional | ka | paper | english | ma | lekha | saktha | h | kya
+   TRANSLATION: 
+
+28. SOURCE:  Happy birthday Bhai God bless you with happiness and All your dream come true and healthy life hamesha khush raho
+   TOKENS (20): Happy | birthday | Bhai | God | bless | you | with | happiness | and | All | your | dream | come | true | and | healthy | life | hamesha | khush | raho
+   TRANSLATION: 
+
+29. SOURCE:  “Bolo aapko screenshot ke naam ka rent du sir ” Which scene was your favourite Comment below now Download like app
+   TOKENS (20): Bolo | aapko | screenshot | ke | naam | ka | rent | du | sir | Which | scene | was | your | favourite | Comment | below | now | Download | like | app
+   TRANSLATION: 
+
+30. SOURCE:  Yaar main rice khate hue dekh rahi thi aur Mera mood kharab ho gaya dusron ko khate hue dekh kar
+   TOKENS (20): Yaar | main | rice | khate | hue | dekh | rahi | thi | aur | Mera | mood | kharab | ho | gaya | dusron | ko | khate | hue | dekh | kar
+   TRANSLATION: 
+

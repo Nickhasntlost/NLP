@@ -6,11 +6,14 @@ Files generated locally:
 - `models/lid_train.jsonl` — 80% train split
 - `models/lid_holdout.jsonl` — 20% held-out split for evaluation
 - `models/lid_dataset.zip` — packaged dataset for upload
+- `data/roman_hindi_markers.json` — expanded marker list used for weak labeling (125 markers)
 
 Local preparation notes:
 - Labels were produced with a deterministic heuristic using `preprocessing/preprocess_text(track='model_input')` tokens and script tags.
 - Heuristic rules: Devanagari tokens -> `HI`; Latin tokens in `data/roman_hindi_markers.json` -> `HI`; Latin tokens otherwise -> `EN`; mixed/garbage -> `OTHER`.
 - This is a weak-label baseline and should be reviewed/curated if you need higher-quality training labels.
+- Marker list size after expansion: 125.
+- The dataset was regenerated after the marker expansion so `lid_train.jsonl` and `lid_holdout.jsonl` reflect the updated weak-labeling rules.
 
 Evaluation Limitations:
 - The held-out evaluation set was created using the same weak / heuristic labeling scheme as the training data (`roman_hindi_markers.json` lookup + Devanagari detection), not an independently verified or manually labeled gold set.
@@ -54,6 +57,8 @@ Results (important):
 - 99.93% accuracy reflects performance against weak / heuristic-generated labels, not verified ground truth.
 - This number should be read as: "how well the model reproduced the labeling heuristic," not as real-world LID accuracy.
 - A qualitative sanity check on unseen sentences was used instead of full manual evaluation due to project time constraints.
+- Sanity-check review outcome: core Hindi function words such as `hai`, `ki`, `ke`, `se`, `kya`, `nhi`, `aur`, `bhi`, `kuch`, `honi`, and `chahiye` were identified correctly as `HI`; Devanagari, English, and numeric tokens remained reliable.
+- Accepted residual limitation: some inflected Romanized Hindi verb forms and capitalized variants such as `ldko`, `kregi`, and `Eska` can still be misclassified occasionally.
 
 Estimated training time on a Google Colab T4 (very approximate):
 - Dataset size: ~6.5k sentences (~83k tokens)
@@ -62,3 +67,4 @@ Estimated training time on a Google Colab T4 (very approximate):
 Notes & next steps:
 - The dataset is weak-labeled; if you prefer higher-quality labels, we can produce a small manually-corrected subset (e.g., 500 sentences) to use for validation or fine-tuning.
 - I did not run training locally because the machine lacks a GPU; the Colab script is ready to run as-is.
+- Model persistence: Colab saves the trained checkpoint under `/content/lid_model`, but that filesystem is ephemeral. For reuse in the full pipeline, download that folder or copy it to Google Drive before the Colab session ends.

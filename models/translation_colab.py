@@ -306,8 +306,7 @@ class TranslationDataset(Dataset):
             truncation=True,
             padding=False,
         )
-        with self.tokenizer.as_target_tokenizer():
-            labels = self.tokenizer(
+        labels = self.tokenizer(
                 tgt,
                 max_length=self.max_tgt_len,
                 truncation=True,

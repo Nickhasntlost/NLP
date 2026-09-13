@@ -313,11 +313,19 @@ class TranslationDataset(Dataset):
         tgt_with_tag = IP.preprocess_batch([tgt], src_lang=TGT_LANG, tgt_lang=SRC_LANG)[0]
         labels = self.tokenizer(
             tgt_with_tag,
-            max_length=self.max_tgt_len,
+            max_length=self.max_tgt_len + 1,  # +1 to compensate for the tag token we strip below
             truncation=True,
             padding=False,
         )
-        model_inputs["labels"] = labels["input_ids"]
+        # Strip the leading language-tag token from the label IDs.
+        # IP.preprocess_batch prepends a language tag (e.g. "eng_Latn") which
+        # the tokenizer encodes as token ID 0 of labels. Decoder labels must
+        # contain only real target-text tokens; the tag token causes an
+        # out-of-bounds index in the LM head during the forward pass.
+        label_ids = labels["input_ids"]
+        if len(label_ids) > 1:
+            label_ids = label_ids[1:]  # drop the language tag token
+        model_inputs["labels"] = label_ids
         return model_inputs
 
 
@@ -359,10 +367,13 @@ def generate_translations(model, tokenizer, pairs, batch_size=16, device="cuda")
                 use_cache=False,  # see Patch 6: IndicTrans2 custom code breaks on newer Cache objects
             )
 
-        decoded = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        decoded_raw = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        # Debug: show raw decoded output on first batch to diagnose generation issues
+        if i == 0:
+            print(f"  [DEBUG] raw decoded sample: {decoded_raw[:2]}")
         # Postprocess (denormalizes numbers/entities IndicProcessor normalized
         # during preprocessing) to get final, comparable output text.
-        decoded = IP.postprocess_batch(decoded, lang=TGT_LANG)
+        decoded = IP.postprocess_batch(decoded_raw, lang=TGT_LANG)
         hypotheses.extend(decoded)
         references.extend(refs)
 
@@ -436,6 +447,19 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    # ── Patch 7: Force single GPU ──────────────────────────────────────────────
+    # Kaggle T4 x2 exposes 2 GPUs. HuggingFace Trainer automatically wraps the
+    # model in DataParallel when torch.cuda.device_count() > 1. IndicTrans2's
+    # custom modeling code (encoder_attn, custom decoder layers, etc.) is
+    # incompatible with DataParallel — it triggers CUDA device-side asserts.
+    # Fix: monkey-patch device_count to return 1 so Trainer sees only one GPU.
+    if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+        _real_device_count = torch.cuda.device_count
+        torch.cuda.device_count = lambda: 1
+        print(f"  Note: {_real_device_count()} GPUs detected; restricting to GPU 0 (IndicTrans2 DataParallel incompatibility).")
+    # ── End Patch 7 ───────────────────────────────────────────────────────────
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
     if device == "cpu":

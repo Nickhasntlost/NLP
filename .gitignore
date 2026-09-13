@@ -40,6 +40,7 @@ dist/
 
 # Model outputs and checkpoints
 models/lid_model/
+models/translation_model/
 models/checkpoints/
 models/*checkpoint*/
 **/pytorch_model.bin

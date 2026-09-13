@@ -21,10 +21,11 @@ Step 2: Upload these files to Colab (or copy from Drive):
 Step 3: Install dependencies in a Colab cell:
   !pip install -q --upgrade peft accelerate
   !pip install -q sacrebleu sentencepiece bitsandbytes
+  !pip install -q IndicTransToolkit
   # Then RESTART the Colab runtime before proceeding to Step 4.
   # (Runtime → Restart runtime)
   # Do NOT try to downgrade transformers or huggingface-hub — Colab's system
-  # packages prevent it. The script patches the two IndicTrans2 compatibility
+  # packages prevent it. The script patches the IndicTrans2 compatibility
   # breaks at runtime instead.
 
 Step 4: Run the script:
@@ -116,6 +117,68 @@ if not hasattr(_hf_hub, "HfFolder"):
     _hf_hub.HfFolder = _HfFolder
 # ── End Patch 3 ───────────────────────────────────────────────────────────────
 
+# ── Patch 4: custom IndicTrans tie_weights() vs newer transformers callers ──
+# IndicTransForConditionalGeneration (loaded dynamically via trust_remote_code)
+# DEFINES ITS OWN tie_weights(self) that only accepts `self`. Because it's
+# defined directly on the subclass, Python calls it instead of the base
+# PreTrainedModel.tie_weights() — patching the base class has no effect.
+# Newer transformers versions call self.tie_weights(...) internally from
+# several places (post_init, _finalize_model_loading, etc.) and have
+# progressively added new kwargs over time (recompute_mapping, missing_keys,
+# ...), so the custom method raises:
+#   TypeError: IndicTransForConditionalGeneration.tie_weights() got an
+#   unexpected keyword argument '<whatever kwarg this transformers version added>'
+# Fix: try loading normally; if it fails with this specific error, find the
+# dynamically-imported IndicTrans module in sys.modules, wrap its
+# tie_weights method to swallow all args/kwargs, and retry the load. This
+# covers any current or future extra kwarg without needing to know its name.
+import sys as _sys
+
+def load_indictrans_model(model_name, **kwargs):
+    from transformers import AutoModelForSeq2SeqLM
+    try:
+        return AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True, **kwargs)
+    except TypeError as e:
+        if "tie_weights() got an unexpected keyword argument" not in str(e):
+            raise
+        patched = False
+        for mod_name, mod in list(_sys.modules.items()):
+            if not mod_name.startswith("transformers_modules"):
+                continue
+            for attr in list(vars(mod).values()):
+                if isinstance(attr, type) and "tie_weights" in attr.__dict__:
+                    _orig_tw = attr.__dict__["tie_weights"]
+                    def _make_wrapper(orig_fn):
+                        def _wrapper(self, *args, **kwargs):
+                            return orig_fn(self)
+                        return _wrapper
+                    attr.tie_weights = _make_wrapper(_orig_tw)
+                    patched = True
+        if not patched:
+            raise
+        return AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True, **kwargs)
+# ── End Patch 4 ───────────────────────────────────────────────────────────────
+
+# ── Patch 6: legacy tuple-based KV cache vs newer transformers Cache objects ─
+# Newer transformers passes past_key_values as an EncoderDecoderCache object
+# during generation, but IndicTrans2's custom decoder
+# (modeling_indictrans.py) still does the old tuple-style access:
+#   past_key_values[0][0].shape[2]
+# which raises:
+#   TypeError: 'EncoderDecoderCache' object is not subscriptable
+# This affects both direct model.generate() calls AND Trainer's internal
+# generate() calls during evaluation (predict_with_generate=True), so we
+# disable KV caching globally right after loading the model rather than
+# patching every call site. This makes generation recompute each step
+# instead of reusing cached attention states — slower, but avoids the
+# broken code path entirely and is fine for these eval set sizes.
+def disable_kv_cache(model):
+    model.config.use_cache = False
+    if hasattr(model, "generation_config") and model.generation_config is not None:
+        model.generation_config.use_cache = False
+    return model
+# ── End Patch 6 ───────────────────────────────────────────────────────────────
+
 import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import (
@@ -150,15 +213,52 @@ _PTTB.__setattr__ = _patched_pttb_setattr
 
 
 # ─── IndicTrans2 language tags ────────────────────────────────────────────────
-# Source: code-mixed Hinglish. IndicTrans2 uses BCP-47-style tags.
-# For Roman-script Hindi mixed with English, we use "hin_Latn".
-# If your data has Devanagari, this tag still works — IndicTrans2 handles mixed.
-SRC_LANG = "hin_Latn"
+# Source: code-mixed Hinglish (romanized Hindi + English, Latin script).
+# IMPORTANT: IndicTrans2's tokenizer only recognizes a fixed set of BCP-47-style
+# tags (see LANGUAGE_TAGS in the model's tokenization_indictrans.py). Romanized
+# Hindi has NO tag of its own — the only Latin-script tags supported are
+# kha_Latn (Khasi) and lus_Latn (Mizo), which are unrelated languages. Using
+# "hin_Latn" raises: AssertionError: Invalid source language tag: hin_Latn
+# There is no clean fix here without a full transliteration pipeline
+# (romanized Hindi -> Devanagari via a dedicated transliteration model, plus
+# word-level language ID to know which words are Hindi vs. English) — a much
+# bigger undertaking than this model conditioning step.
+# Pragmatic choice: tag the source as "eng_Latn" (the closest valid tag to
+# what's actually on the page — Latin script) and let fine-tuning on the
+# paired Hinglish->English data teach the actual mapping. The tag mainly
+# needs to be valid and applied consistently; it doesn't need to be
+# linguistically "correct" once the model is fine-tuned end-to-end on your data.
+SRC_LANG = "eng_Latn"
 TGT_LANG = "eng_Latn"
 
 MODEL_NAME = "ai4bharat/indictrans2-indic-en-1B"
 # Fallback if T4 OOMs on 1B:
 # MODEL_NAME = "ai4bharat/indictrans2-indic-en-dist-200M"
+
+# ── IndicTrans2 preprocessing ─────────────────────────────────────────────────
+# IMPORTANT: IndicTrans2 does NOT use manual ">>lang<<" style tags (that is an
+# mBART/M2M100 convention). It requires sentences to be run through
+# IndicProcessor.preprocess_batch(), which applies the correct language tag
+# format internally along with normalization (numbers, punctuation, etc.).
+# Passing raw ">>hin_Latn<<"-tagged strings directly to the tokenizer raises:
+#   AssertionError: Invalid source language tag: >>hin_Latn<<
+# because that literal string is never a tag the tokenizer's vocabulary knows.
+#
+# Patch 5: IndicTransToolkit's collator.py does
+#   `from transformers.tokenization_utils import PreTrainedTokenizerBase`
+# but newer transformers moved that class to tokenization_utils_base and
+# no longer re-exports it from tokenization_utils. IndicTransToolkit's own
+# __init__.py unconditionally imports its collator module (even though we
+# only need IndicProcessor from it), so this breaks `import IndicTransToolkit`
+# entirely unless we restore the old re-export first.
+import transformers.tokenization_utils as _tok_utils
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase as _PTB
+if not hasattr(_tok_utils, "PreTrainedTokenizerBase"):
+    _tok_utils.PreTrainedTokenizerBase = _PTB
+# ── End Patch 5 ───────────────────────────────────────────────────────────────
+from IndicTransToolkit import IndicProcessor
+IP = IndicProcessor(inference=True)
+# ── End IndicTrans2 preprocessing ────────────────────────────────────────────
 
 
 # ─── Data loading ─────────────────────────────────────────────────────────────
@@ -197,8 +297,9 @@ class TranslationDataset(Dataset):
 
     def __getitem__(self, idx):
         src, tgt = self.pairs[idx]
-        # IndicTrans2 expects source language token prepended
-        src_with_tag = f">>{SRC_LANG}<< {src}"
+        # IndicTrans2 requires IndicProcessor for tagging/normalization —
+        # see "IndicTrans2 preprocessing" note near SRC_LANG/TGT_LANG above.
+        src_with_tag = IP.preprocess_batch([src], src_lang=SRC_LANG, tgt_lang=TGT_LANG)[0]
         model_inputs = self.tokenizer(
             src_with_tag,
             max_length=self.max_src_len,
@@ -226,11 +327,15 @@ def generate_translations(model, tokenizer, pairs, batch_size=16, device="cuda")
 
     for i in range(0, len(pairs), batch_size):
         batch_pairs = pairs[i : i + batch_size]
-        srcs = [f">>{SRC_LANG}<< {s}" for s, _ in batch_pairs]
+        srcs = [s for s, _ in batch_pairs]
         refs = [t for _, t in batch_pairs]
 
+        # IndicTrans2 requires IndicProcessor for tagging/normalization —
+        # see "IndicTrans2 preprocessing" note near SRC_LANG/TGT_LANG above.
+        preprocessed_srcs = IP.preprocess_batch(srcs, src_lang=SRC_LANG, tgt_lang=TGT_LANG)
+
         inputs = tokenizer(
-            srcs,
+            preprocessed_srcs,
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -246,9 +351,13 @@ def generate_translations(model, tokenizer, pairs, batch_size=16, device="cuda")
                 num_beams=4,
                 max_new_tokens=128,
                 early_stopping=True,
+                use_cache=False,  # see Patch 6: IndicTrans2 custom code breaks on newer Cache objects
             )
 
         decoded = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        # Postprocess (denormalizes numbers/entities IndicProcessor normalized
+        # during preprocessing) to get final, comparable output text.
+        decoded = IP.postprocess_batch(decoded, lang=TGT_LANG)
         hypotheses.extend(decoded)
         references.extend(refs)
 
@@ -338,7 +447,7 @@ def main():
     print(f"\nLoading model: {args.model_name}")
     print("  This may take a few minutes on first run (downloads ~2–4 GB)...")
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
-    model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name, trust_remote_code=True)
+    model = disable_kv_cache(load_indictrans_model(args.model_name))
     model.to(device)
 
     # ── Build datasets ─────────────────────────────────────────────────────────
@@ -353,6 +462,14 @@ def main():
     )
 
     # ── Training arguments ─────────────────────────────────────────────────────
+    # NOTE: transformers renamed `evaluation_strategy` -> `eval_strategy`
+    # (deprecated/removed depending on version). Detect which name the
+    # installed Seq2SeqTrainingArguments actually accepts so this works
+    # across versions without pinning transformers.
+    import inspect as _inspect
+    _ta_params = _inspect.signature(Seq2SeqTrainingArguments.__init__).parameters
+    _eval_strategy_kwarg = "eval_strategy" if "eval_strategy" in _ta_params else "evaluation_strategy"
+
     training_args = Seq2SeqTrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=args.epochs,
@@ -364,7 +481,6 @@ def main():
         predict_with_generate=True,
         generation_max_length=args.max_tgt_len,
         fp16=args.fp16,
-        evaluation_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="bleu",
@@ -372,19 +488,26 @@ def main():
         logging_steps=50,
         save_total_limit=2,
         report_to="none",  # disable W&B/tensorboard
+        **{_eval_strategy_kwarg: "epoch"},
     )
 
     compute_metrics = make_compute_metrics(tokenizer)
+
+    # NOTE: transformers renamed the `tokenizer` kwarg on Trainer/Seq2SeqTrainer
+    # to `processing_class` (tokenizer= was removed entirely in v5.0.0).
+    # Detect which name the installed Seq2SeqTrainer actually accepts.
+    _trainer_params = _inspect.signature(Seq2SeqTrainer.__init__).parameters
+    _tokenizer_kwarg = "processing_class" if "processing_class" in _trainer_params else "tokenizer"
 
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
+        **{_tokenizer_kwarg: tokenizer},
     )
 
     # ── Baseline evaluation (before fine-tuning) ───────────────────────────────

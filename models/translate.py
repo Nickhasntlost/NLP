@@ -192,46 +192,27 @@ def _load():
     print("=" * 60)
 
 
-def translate(text: str) -> str:
+def translate_devanagari(deva_text: str) -> str:
     """
-    Translate a single Hinglish sentence to English.
-
-    The pipeline handles both Roman-script Hinglish ("Bhai kya kar raha hai")
-    and Devanagari Hindi ("भाई क्या कर रहा है") transparently:
-      1. If input is predominantly Latin/Roman-script, it is first transliterated
-         to Devanagari (ITRANS scheme) so IndicTrans2 receives its expected script.
-      2. IndicProcessor normalises and language-tags the Devanagari sentence.
-      3. IndicTrans2 1B generates the English translation.
+    Translate a Devanagari Hindi sentence directly to English using IndicTrans2 1B.
+    Assumes the input is already in Devanagari script (hin_Deva).
 
     Args:
-        text: Input sentence in Hinglish (Roman-script or Devanagari or mixed).
+        deva_text: Input sentence in Devanagari script.
 
     Returns:
-        English translation string (leading punctuation artifacts removed).
-
-    Example:
-        >>> from models.translate import translate
-        >>> translate("Bhai kya kar raha hai?")
-        'what are you doing today?'
+        Raw English translation string.
     """
     import torch
+
+    if not deva_text or not deva_text.strip():
+        return ""
 
     if _model is None:
         _load()
 
-    # ── Step 1: Model 2 Normalization & Script Conversion ─────────────────────
-    # Normalizes character elongations, colloquial slang, and spelling variants,
-    # then converts Roman Hinglish to Devanagari (or bypasses if already Devanagari)
-    # so IndicTrans2 receives clean, canonical Devanagari input.
-    try:
-        from models.normalize import normalize_and_transliterate
-        text = normalize_and_transliterate(text)
-    except Exception:
-        if _is_roman_script(text):
-            text = _roman_to_deva(text)
-
-    # ── Step 2: IndicProcessor normalisation & language tagging ───────────────
-    preprocessed = _ip.preprocess_batch([text], src_lang=SRC_LANG, tgt_lang=TGT_LANG)
+    # IndicProcessor normalisation & language tagging
+    preprocessed = _ip.preprocess_batch([deva_text], src_lang=SRC_LANG, tgt_lang=TGT_LANG)
 
     inputs = _tokenizer(
         preprocessed,
@@ -262,6 +243,45 @@ def translate(text: str) -> str:
     # Strip leading period/dot/whitespace artifact introduced by IndicProcessor
     result = re.sub(r"^[.\s]+", "", decoded[0]).strip()
     return result
+
+
+def translate(text: str) -> str:
+    """
+    Translate a single Hinglish sentence to English.
+
+    The pipeline handles both Roman-script Hinglish ("Bhai kya kar raha hai")
+    and Devanagari Hindi ("भाई क्या कर रहा है") transparently:
+      1. If input is predominantly Latin/Roman-script, it is first transliterated
+         to Devanagari (ITRANS scheme) so IndicTrans2 receives its expected script.
+      2. IndicProcessor normalises and language-tags the Devanagari sentence.
+      3. IndicTrans2 1B generates the English translation.
+
+    Args:
+        text: Input sentence in Hinglish (Roman-script or Devanagari or mixed).
+
+    Returns:
+        English translation string (leading punctuation artifacts removed).
+
+    Example:
+        >>> from models.translate import translate
+        >>> translate("Bhai kya kar raha hai?")
+        'what are you doing today?'
+    """
+    if not text or not text.strip():
+        return ""
+
+    # ── Step 1: Model 2 Normalization & Script Conversion ─────────────────────
+    # Normalizes character elongations, colloquial slang, and spelling variants,
+    # then converts Roman Hinglish to Devanagari (or bypasses if already Devanagari)
+    # so IndicTrans2 receives clean, canonical Devanagari input.
+    try:
+        from models.normalize import normalize_and_transliterate
+        text = normalize_and_transliterate(text)
+    except Exception:
+        if _is_roman_script(text):
+            text = _roman_to_deva(text)
+
+    return translate_devanagari(text)
 
 
 # ── CLI test harness ───────────────────────────────────────────────────────────

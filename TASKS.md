@@ -46,9 +46,9 @@ Work proceeds top to bottom. Do not start a phase before the prior phase's exit 
 - **Exit criteria:** before/after examples showing fluency improvement without meaning drift (0.0% drift, 100% polish)
 
 ## Phase 7 — Pipeline Integration
-- [ ] Wire Phases 2–6 into a single callable pipeline function
-- [ ] End-to-end test: raw scraped sentence → final translated+corrected output
-- **Exit criteria:** 10 end-to-end examples run cleanly with no manual intervention
+- [x] Wire Phases 2–6 into a single callable pipeline function (`pipeline.py`)
+- [x] End-to-end test: raw scraped sentence → final translated+corrected output (`test_pipeline.py`, `evaluate_pipeline.py`)
+- **Exit criteria:** 10 end-to-end examples run cleanly with no manual intervention (100% PASS, documented in `PHASE7_SUMMARY.md`)
 
 ## Phase 8 — API & Frontend (parallel-safe with Phase 7 once interfaces are frozen)
 - [ ] FastAPI `/translate` endpoint wrapping the pipeline

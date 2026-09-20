@@ -219,12 +219,16 @@ def translate(text: str) -> str:
     if _model is None:
         _load()
 
-    # ── Step 1: Script normalisation ──────────────────────────────────────────
-    # IndicTrans2 was trained on hin_Deva (Devanagari). Roman-script Hinglish
-    # causes the model to echo its input rather than translate. Transliterate
-    # to Devanagari before feeding to IndicProcessor.
-    if _is_roman_script(text):
-        text = _roman_to_deva(text)
+    # ── Step 1: Model 2 Normalization & Script Conversion ─────────────────────
+    # Normalizes character elongations, colloquial slang, and spelling variants,
+    # then converts Roman Hinglish to Devanagari (or bypasses if already Devanagari)
+    # so IndicTrans2 receives clean, canonical Devanagari input.
+    try:
+        from models.normalize import normalize_and_transliterate
+        text = normalize_and_transliterate(text)
+    except Exception:
+        if _is_roman_script(text):
+            text = _roman_to_deva(text)
 
     # ── Step 2: IndicProcessor normalisation & language tagging ───────────────
     preprocessed = _ip.preprocess_batch([text], src_lang=SRC_LANG, tgt_lang=TGT_LANG)

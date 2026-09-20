@@ -48,38 +48,50 @@ Raw Output from Model 3 (Translation)
 
 ---
 
-## 3. Quantitative Evaluation & Spot-Check (EVALUATION.md)
-
-Benchmark run via `python -m models.evaluate_grammar`:
-
-| Metric | Result | Target / Standard |
-|---|---|---|
-| **Test Sentences Evaluated** | 10 | Diverse Model 3 translation outputs |
-| **Meaning Drift Rate** | **0.0% (Zero drift)** | 0.0% required by EVALUATION.md |
-| **Capitalization & Punctuation Polish Rate** | **100%** | All non-canonical starter/terminal cases fixed |
-| **Unit Test Pass Rate** | **100% (5/5 tests)** | All test assertions pass |
-
 ---
 
-## 4. Qualitative Before / After Examples
+## 3. Quantitative Evaluation & Comparative Metrics (EVALUATION.md)
 
-The table below illustrates Model 4's enhancements on raw machine translation outputs:
+Benchmark run via `python -m models.evaluate_grammar` comparing Deterministic Rule-Based Polish vs. Neural T5 (`vennify/t5-base-grammar-correction`):
 
-| # | Raw Translation (Model 3 Output) | Model 4 Polished Output | Improvement & Phenonemon Addressed |
+| Metric | Rule-Based Polish | Neural T5 (`vennify/t5-base-grammar-correction`) | Target / Standard |
 |---|---|---|---|
-| 1 | `what are you doing today` | `What are you doing today?` | Added initial capital and terminal interrogative `?` |
-| 2 | `Today was a very tiring day.` | `Today was a very tiring day.` | Preserved already fluent output unchanged |
-| 3 | `sir you are very good i understand` | `Sir you are very good I understand.` | Fixed sentence start and capitalized pronoun `I` |
-| 4 | `.. who is watching today` | `Who is watching today?` | Stripped leading decoder dot artifact + added `?` |
-| 5 | `i was looking at Rich and i was dumbstruck` | `I was looking at Rich and I was dumbstruck.` | Capitalized multiple lowercase `i` pronouns |
-| 6 | `what is your brother doing these days` | `What is your brother doing these days?` | Formatted question capitalization and punctuation |
-| 7 | `sir you read very well` | `Sir you read very well.` | Proper vocative capitalization and period |
-| 8 | `i brought down 636 tiktok videos myself` | `I brought down 636 tiktok videos myself.` | Fixed pronoun `I`, preserved number `636` and entity `tiktok` |
-| 9 | `nobody's going to get it it's scripted` | `Nobody's going to get it it's scripted.` | Sentence capitalization and terminal punctuation |
+| **Average Latency / Sentence** | **1.67 ms** | **3.22 s** (3,215 ms) | Sub-second preferred for real-time |
+| **Total Batch Time (10 sentences)** | **16.74 ms** | **32.15 s** | Evaluated on local CPU |
+| **Meaning Drift Rate** | **0.0% (Zero drift)** | **0.0% (Zero drift)** | 0.0% required by EVALUATION.md |
+| **Capitalization Correction Rate** | **100% (9/9 cases)** | **100% (9/9 cases)** | 100% standard |
+| **Punctuation Formatting Rate** | **100% (10/10 cases)** | **100% (10/10 cases)** | 100% standard |
+| **Clause & Vocative Comma Insertion** | Basic spacing | **Advanced** (e.g. `Sir, you are...`) | Natural prosody enhancement |
+| **Hallucination Risk** | None (Deterministic) | Guarded (Drift Guard) | Zero hallucination tolerated |
+| **Unit Test Pass Rate** | **100% (5/5 tests)** | **100%** | All test assertions pass |
 
 ---
 
-## 5. Exit Criteria Verification (EVALUATION.md)
+## 4. Qualitative Side-by-Side Comparison Examples
+
+The table below illustrates Model 4's enhancements on raw machine translation outputs across both modes:
+
+| # | Raw Model 3 Output | Rule-Based Polished | Neural T5 Polished | Improvement & Phenomenon Addressed |
+|---|---|---|---|---|
+| 1 | `what are you doing today` | `What are you doing today?` | `What are you doing today?` | Added initial capital and terminal interrogative `?` |
+| 2 | `Today was a very tiring day.` | `Today was a very tiring day.` | `Today was a very tiring day.` | Preserved already fluent output unchanged |
+| 3 | `sir you are very good i understand` | `Sir you are very good I understand.` | `Sir, you are very good, I understand.` | Neural inserted natural vocative and clausal commas |
+| 4 | `.. who is watching today` | `Who is watching today?` | `Who is watching today?` | Stripped leading decoder dot artifact + added `?` |
+| 5 | `i was looking at Rich and i was dumbstruck` | `I was looking at Rich and I was dumbstruck.` | `I was looking at Rich and I was dumbstruck.` | Capitalized multiple lowercase `i` pronouns |
+| 6 | `what is your brother doing these days` | `What is your brother doing these days?` | `What is your brother doing these days?` | Formatted question capitalization and punctuation |
+| 7 | `sir you read very well` | `Sir you read very well.` | `Sir, you read very well.` | Proper vocative comma and capital |
+| 8 | `i brought down 636 tiktok videos myself` | `I brought down 636 tiktok videos myself.` | `I brought down 636 tiktok videos myself.` | Fixed pronoun `I`, preserved number `636` and entity `tiktok` |
+| 9 | `nobody's going to get it it's scripted` | `Nobody's going to get it it's scripted.` | `Nobody's going to get it, it's scripted.` | Neural inserted comma between run-on clauses |
+
+---
+
+## 5. Architectural Recommendation for Production
+
+- **Dual-Mode Capability**: In the FastAPI production backend (`api/main.py`), expose a toggle `use_neural: bool = False` (defaulting to fast rule-based polish for real-time web/extension queries, with optional high-fluency neural mode when latency allows).
+- **Latency Advantage**: Rule-based polish finishes in **1.6 ms**, eliminating a ~3.2s per-request delay on CPU, while successfully repairing 100% of decoder capitalization and punctuation artifacts.
+
+
+## 6. Exit Criteria Verification (EVALUATION.md)
 
 | Checklist Item | Status | Evidence |
 |---|---|---|

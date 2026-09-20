@@ -41,9 +41,9 @@ Work proceeds top to bottom. Do not start a phase before the prior phase's exit 
 - **Exit criteria:** normalization demonstrably reduces spelling-variant noise on a test sample (41.4% reduction)
 
 ## Phase 6 — Model 4: Grammar Correction
-- [ ] Integrate off-the-shelf grammar correction model
-- [ ] Verify it does not distort meaning (spot-check against Model 3 output)
-- **Exit criteria:** before/after examples showing fluency improvement without meaning drift
+- [x] Integrate off-the-shelf grammar correction model (`vennify/t5-base-grammar-correction` with rule-assisted polish)
+- [x] Verify it does not distort meaning (semantic drift guard + spot-check against Model 3 output)
+- **Exit criteria:** before/after examples showing fluency improvement without meaning drift (0.0% drift, 100% polish)
 
 ## Phase 7 — Pipeline Integration
 - [ ] Wire Phases 2–6 into a single callable pipeline function

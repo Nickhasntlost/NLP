@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "start-api": "uvicorn api.main:app --reload",
+    "start-frontend": "npm --prefix frontend run dev",
     "hello": "python scripts/run_hello.py"
   }
 }

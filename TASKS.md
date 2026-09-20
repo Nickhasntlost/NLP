@@ -51,9 +51,9 @@ Work proceeds top to bottom. Do not start a phase before the prior phase's exit 
 - **Exit criteria:** 10 end-to-end examples run cleanly with no manual intervention (100% PASS, documented in `PHASE7_SUMMARY.md`)
 
 ## Phase 8 — API & Frontend (parallel-safe with Phase 7 once interfaces are frozen)
-- [ ] FastAPI `/translate` endpoint wrapping the pipeline
-- [ ] React + Tailwind frontend calling the endpoint
-- **Exit criteria:** working web demo, input box → translated output shown
+- [x] FastAPI `/translate` endpoint wrapping the pipeline (`api/main.py`, `api/test_api.py`)
+- [x] React + Tailwind frontend calling the endpoint (`frontend/`, Vite + React 19)
+- **Exit criteria:** working web demo, input box → translated output shown (100% PASS, documented in `PHASE8_SUMMARY.md`)
 
 ## Phase 9 — Browser Extension (parallel-safe once API is stable)
 - [ ] Chrome Manifest V3 extension calling the same API

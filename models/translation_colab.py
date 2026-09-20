@@ -356,7 +356,9 @@ def generate_translations(model, tokenizer, pairs, batch_size=16, device="cuda")
                 num_beams=4,
                 max_new_tokens=128,
                 early_stopping=True,
-                use_cache=False,  # see Patch 6: IndicTrans2 custom code breaks on newer Cache objects
+                use_cache=False,          # see Patch 6: IndicTrans2 custom code breaks on newer Cache objects
+                repetition_penalty=1.2,   # Fix: prevents repetition collapse on OOV/rare slang tokens
+                no_repeat_ngram_size=3,   # Fix: prevents n-gram repetition loops in beam search
             )
 
         with tokenizer.as_target_tokenizer():
@@ -367,6 +369,11 @@ def generate_translations(model, tokenizer, pairs, batch_size=16, device="cuda")
         # Postprocess (denormalizes numbers/entities IndicProcessor normalized
         # during preprocessing) to get final, comparable output text.
         decoded = IP.postprocess_batch(decoded_raw, lang=TGT_LANG)
+        # Fix: strip leading period/dot/whitespace artifacts from all hypotheses.
+        # IndicTrans2's IndicProcessor introduces a leading punctuation token in
+        # ~85% of outputs (e.g. ".. who is watching today"). Stripping it before
+        # scoring gives accurate BLEU/chrF and before saving gives clean output.
+        decoded = [re.sub(r'^[\.\.\s]+', '', h).strip() for h in decoded]
         hypotheses.extend(decoded)
         references.extend(refs)
 
@@ -409,8 +416,8 @@ def make_compute_metrics(tokenizer):
         decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-        # Strip whitespace
-        decoded_preds = [p.strip() for p in decoded_preds]
+        # Strip whitespace and leading period artifacts
+        decoded_preds = [re.sub(r'^[\.\.\s]+', '', p).strip() for p in decoded_preds]
         decoded_labels = [l.strip() for l in decoded_labels]
 
         bleu = sacrebleu.corpus_bleu(decoded_preds, [decoded_labels]).score

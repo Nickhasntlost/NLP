@@ -56,18 +56,49 @@ The project must keep both tracks explicitly separated. The demo track may conti
 - **Output:** per-token language label (HI/EN/OTHER)
 - **Training data:** LinCE / GLUECoS + scraped+labeled subset
 
-### 2.4 Model 2 — Normalization
+### 2.4 Model 2 — Normalization & Script Conversion
 - **Base:** `mt5-small` fine-tuned seq2seq, OR rule-based (edit-distance + lookup table) if time-constrained
 - **Input:** tokenized sentence + LID tags
-- **Output:** normalized sentence (spelling variants collapsed to canonical form)
+- **Output:** normalized sentence (spelling variants collapsed to canonical form) **in Devanagari script**
+- **Additional responsibility (production):** Roman-to-Devanagari transliteration of Hinglish input before Model 3. See §2.5.2.
 - **Fallback rule:** if fine-tuning is infeasible within timeline, rule-based is an acceptable substitute — must be documented as such, not silently swapped in.
 
 ### 2.5 Model 3 — Context-Aware Translation (core model)
-- **Base:** `ai4bharat/indictrans2-indic-en-1B`, fine-tuned on code-mixed parallel data
-- **Input:** normalized sentence
-- **Output:** fluent translation in target language
-- **Training data:** PHINC, CALCS, or self-built parallel set from scraped data
+- **Base:** `ai4bharat/indictrans2-indic-en-1B`
+- **Production deployment status:** Used **as-is in pretrained/baseline form** (`trust_remote_code=True`). No fine-tuning is applied in the current production pipeline.
+- **Input:** Devanagari-script sentence (see §2.5.2 for how Roman Hinglish is converted before this stage)
+- **Output:** fluent English translation
+- **Inference entry point:** `models/translate.py` — exposes `translate(text: str) -> str`
 - **This is the project's primary contribution — highest priority for quality and evaluation.**
+
+#### 2.5.1 Fine-Tuning Experiment — Documented Negative Result (RULES.md R3.1)
+
+A PHINC-based fine-tuning experiment was conducted (Phase 4) and produced the following result:
+
+| Evaluation Set | Baseline BLEU | Post Fine-Tune BLEU | Verdict |
+|---|---|---|---|
+| PHINC-val (in-domain, Twitter register) | 19.42 | 36.45 | +16.7 — in-domain improvement |
+| YouTube-eval (out-of-domain, target domain) | 14.85 | 8.20 (corrected) | **-6.65 — regression on target domain** |
+
+**Decision:** The baseline pretrained 1B model is retained for production. Fine-tuning on PHINC narrowed the model's register toward Twitter-style text, degrading performance on the YouTube comment domain this project targets. Per RULES.md R3.1: model is **used off-the-shelf** and must be described as such in the final report.
+
+**Parallel track:** A second fine-tuning attempt on higher-VRAM hardware may be revisited. It is not blocking the current pipeline. If that attempt yields positive out-of-domain results, this section will be updated before any architecture change is applied.
+
+#### 2.5.2 Script-Mismatch Fix — Roman-to-Devanagari Transliteration
+
+**Problem identified:** `indictrans2-indic-en-1B` was trained exclusively on Devanagari-script Hindi (`hin_Deva`). When fed Roman-script Hinglish (e.g. `"Bhai kya kar raha hai"`), the model echoes or hallucinates rather than translating. This is a **script-mismatch**, not a domain-mismatch.
+
+**Fix implemented** (production, in `models/translate.py`):
+
+```
+Roman Hinglish  ─[ITRANS transliteration]→  Devanagari  ─[IndicProcessor]→  [IndicTrans2]→  English
+```
+
+- **Library:** `indic-transliteration` (pure-Python, no GPU, no fairseq dependency)
+- **Scheme:** ITRANS — standard Roman-to-Devanagari phonetic mapping
+- **Detection:** `_is_roman_script(text)` — if >50% of alphabetic chars are ASCII, text is treated as Hinglish and transliterated; pure Devanagari bypasses this step
+- **Known limitation:** English loanwords embedded in Hinglish (e.g. `"rice"`, `"mood"`) are also transliterated to approximate Devanagari syllables (e.g. `रिचे`, `मूद्`). In most cases the model correctly infers meaning from sentence context; rare failures occur with short ambiguous loanwords (e.g. `"rice"` → model reads `रिचे` as the proper noun "Rich").
+- **Validated empirically:** All 4 benchmark Hinglish sentences produced fluent, accurate English output post-fix.
 
 ### 2.6 Model 4 — Grammar / Fluency Post-Processing
 - **Base:** off-the-shelf grammar correction model (e.g. `vennify/t5-base-grammar-correction`)

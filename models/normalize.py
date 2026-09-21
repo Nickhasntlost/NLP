@@ -392,17 +392,262 @@ def is_roman_script(text: str) -> bool:
     return latin / len(alpha) > 0.5
 
 
+# ── Hinglish-Aware Word-Level Dictionary ─────────────────────────────────────
+# Maps canonical Roman Hindi words to correct Devanagari. Covers all common
+# colloquial spellings that ITRANS fails on (e.g. kya→क्या not क्य).
+_HINGLISH_DEVA_DICT: Dict[str, str] = {
+    # ── Pronouns & Demonstratives ──
+    "main": "मैं", "mein": "में", "mai": "मैं", "maine": "मैंने",
+    "tu": "तू", "tum": "तुम", "tune": "तूने", "aap": "आप",
+    "yeh": "यह", "ye": "यह", "woh": "वो", "wo": "वो",
+    "mera": "मेरा", "mere": "मेरे", "meri": "मेरी",
+    "tera": "तेरा", "tere": "तेरे", "teri": "तेरी",
+    "uska": "उसका", "uske": "उसके", "uski": "उसकी",
+    "unka": "उनका", "unke": "उनके", "unki": "उनकी",
+    "apna": "अपना", "apne": "अपने", "apni": "अपनी",
+    "hum": "हम", "humein": "हमें", "humko": "हमको",
+    "mujhe": "मुझे", "tujhe": "तुझे", "unhein": "उन्हें", "inhein": "इन्हें",
+    "tumhe": "तुम्हें", "tumhein": "तुम्हें",
+    "unhone": "उन्होंने", "inhone": "इन्होंने", "kisne": "किसने", "sabne": "सबने",
+    "koi": "कोई", "kuch": "कुछ", "sab": "सब",
+    "khud": "खुद", "dono": "दोनों",
+
+    # ── Interrogatives ──
+    "kya": "क्या", "kahan": "कहाँ", "kaun": "कौन", "kaise": "कैसे",
+    "kyun": "क्यों", "kyunki": "क्योंकि", "kab": "कब", "kitna": "कितना",
+    "kitne": "कितने", "kitni": "कितनी",
+
+    # ── Auxiliary / Copular verbs ──
+    "hai": "है", "hain": "हैं", "tha": "था", "thi": "थी", "the": "थे",
+    "ho": "हो", "hoga": "होगा", "hogi": "होगी", "hoge": "होगे",
+    "hona": "होना", "hota": "होता", "hoti": "होती", "hote": "होते",
+    "honi": "होनी", "hue": "हुए",
+
+    # ── Common verbs ──
+    "kar": "कर", "karo": "करो", "karna": "करना", "karta": "करता",
+    "karti": "करती", "karte": "करते", "karega": "करेगा", "karegi": "करेगी",
+    "karenge": "करेंगे", "kara": "करा", "kari": "करी", "karne": "करने",
+    "de": "दे", "dena": "देना", "dene": "देने", "deta": "देता",
+    "deti": "देती", "dete": "देते", "diya": "दिया",
+    "le": "ले", "lena": "लेना", "lene": "लेने", "leta": "लेता",
+    "leti": "लेती", "lete": "लेते", "liya": "लिया", "liye": "लिए",
+    "ja": "जा", "jao": "जाओ", "jana": "जाना", "jane": "जाने",
+    "jaata": "जाता", "jaate": "जाते", "jaati": "जाती",
+    "jayega": "जाएगा", "jayegi": "जाएगी",
+    "aa": "आ", "aao": "आओ", "aana": "आना", "aane": "आने",
+    "aata": "आता", "aate": "आते", "aati": "आती",
+    "aaya": "आया", "aayi": "आयी", "aaye": "आए",
+    "bol": "बोल", "bolo": "बोलो", "bola": "बोला", "bolna": "बोलना",
+    "bolne": "बोलने", "bolta": "बोलता", "bolte": "बोलते", "bolti": "बोलती",
+    "dekh": "देख", "dekho": "देखो", "dekha": "देखा", "dekhna": "देखना",
+    "dekhne": "देखने", "dekhta": "देखता", "dekhte": "देखते", "dekhti": "देखती",
+    "sun": "सुन", "suno": "सुनो", "suna": "सुना", "sunna": "सुनना",
+    "sune": "सुने", "sunta": "सुनता", "sunte": "सुनते", "sunti": "सुनती",
+    "padh": "पढ़", "padho": "पढ़ो", "padhna": "पढ़ना", "padhne": "पढ़ने",
+    "padhta": "पढ़ता", "padhte": "पढ़ते", "padhti": "पढ़ती",
+    "padhate": "पढ़ाते", "padhati": "पढ़ाती", "padhata": "पढ़ाता",
+    "samajh": "समझ", "samjho": "समझो", "samajhta": "समझता",
+    "samajhte": "समझते", "samajhti": "समझती", "samjhaya": "समझाया",
+    "bata": "बता", "batao": "बताओ", "batana": "बताना",
+    "bana": "बना", "banao": "बनाओ", "banaya": "बनाया", "banane": "बनाने",
+    "kha": "खा", "khao": "खाओ", "khana": "खाना", "khaya": "खाया",
+    "khata": "खाता", "khate": "खाते", "khati": "खाती",
+    "pi": "पी", "peeyo": "पीयो", "peeta": "पीता", "peete": "पीते", "peeti": "पीती",
+    "mil": "मिल", "milta": "मिलता", "milte": "मिलते", "milti": "मिलती",
+    "lag": "लग", "lagta": "लगता", "lagte": "लगते", "lagti": "लगती",
+    "chal": "चल", "chalo": "चलो", "chalta": "चलता", "chalte": "चलते", "chalti": "चलती",
+    "ruk": "रुक", "ruko": "रुको",
+    "kiya": "किया", "kiye": "किए",
+
+    # ── Aspectual markers ──
+    "raha": "रहा", "rahi": "रही", "rahe": "रहे", "rahna": "रहना", "rahne": "रहने",
+    "rehta": "रहता", "rehte": "रहते", "rehti": "रहती",
+    "gaya": "गया", "gayi": "गयी", "gaye": "गए",
+
+    # ── Postpositions & Particles ──
+    "ka": "का", "ke": "के", "ki": "की", "se": "से",
+    "me": "में", "par": "पर", "tak": "तक", "ko": "को",
+    "ne": "ने", "bhi": "भी", "hi": "ही", "to": "तो",
+    "na": "ना", "ya": "या", "aur": "और",
+
+    # ── Adverbs & Adjectives ──
+    "bahut": "बहुत", "zyada": "ज़्यादा", "thoda": "थोड़ा",
+    "achha": "अच्छा", "acha": "अच्छा", "badhiya": "बढ़िया",
+    "achhi": "अच्छी", "acchi": "अच्छी", "achhe": "अच्छे",
+    "sahi": "सही", "theek": "ठीक", "bura": "बुरा",
+    "pehle": "पहले", "baad": "बाद", "aaj": "आज", "kal": "कल",
+    "aajkal": "आजकल", "abhi": "अभी", "tab": "तब",
+    "haan": "हाँ", "nahi": "नहीं", "bas": "बस", "sirf": "सिर्फ़",
+    "shayad": "शायद", "zaroor": "ज़रूर", "bilkul": "बिल्कुल",
+    "waqt": "वक़्त", "din": "दिन", "raat": "रात",
+
+    # ── Common nouns ──
+    "bhai": "भाई", "yaar": "यार", "dost": "दोस्त",
+    "kaam": "काम", "ghar": "घर", "log": "लोग",
+    "paisa": "पैसा", "paise": "पैसे", "wala": "वाला",
+    "wale": "वाले", "wali": "वाली", "sir": "सर",
+    "ji": "जी", "maza": "मज़ा",
+
+    # ── Social / conversational ──
+    "chahiye": "चाहिए", "chahta": "चाहता", "chahti": "चाहती", "chahte": "चाहते",
+    "agar": "अगर", "jo": "जो",
+    "sath": "साथ",
+
+    # ── Numbers (Hindi) ──
+    "ek": "एक", "do": "दो", "teen": "तीन", "char": "चार",
+    "paanch": "पाँच", "chhe": "छे", "saat": "सात",
+    "aath": "आठ", "nau": "नौ", "das": "दस",
+
+    # ── Greetings ──
+    "namaste": "नमस्ते", "namaskar": "नमस्कार",
+    "dhanyavaad": "धन्यवाद", "shukriya": "शुक्रिया",
+    "alvida": "अलविदा",
+
+    # ── Misc common words ──
+    "koi": "कोई", "kahin": "कहीं", "idhar": "इधर", "udhar": "उधर",
+    "andar": "अंदर", "bahar": "बाहर", "upar": "ऊपर", "neeche": "नीचे",
+    "sach": "सच", "jhooth": "झूठ",
+    "pyar": "प्यार", "zindagi": "ज़िन्दगी", "duniya": "दुनिया",
+    "dil": "दिल", "mann": "मन",
+    "accha": "अच्छा", "bada": "बड़ा", "chota": "छोटा",
+    "naya": "नया", "purana": "पुराना",
+    "pata": "पता", "matlab": "मतलब", "taiyari": "तैयारी",
+    "padhna": "पढ़ना", "likhna": "लिखना", "padhao": "पढ़ाओ",
+    "problem": "प्रॉब्लम", "video": "वीडियो", "class": "क्लास",
+    "exam": "एग्ज़ाम", "school": "स्कूल", "college": "कॉलेज",
+
+    # ── Hal/Chal/Haal ──
+    "hal": "हाल", "haal": "हाल", "chal": "चाल",
+    "sa": "सा", "si": "सी", "se": "से",
+}
+
+# ── Improved Phonetic Rules for Unknown Words ────────────────────────────────
+# Maps Roman consonant/vowel clusters to Devanagari. Ordered longest-first
+# to ensure greedy matching. Unlike ITRANS, these rules handle colloquial
+# Hindi conventions (implicit schwa retention, common vowel endings).
+_PHONETIC_MAP: List[Tuple[str, str]] = [
+    # Aspirated conjuncts (must come before simple consonants)
+    ("ksh", "क्ष"), ("gya", "ज्ञ"), ("tra", "त्र"),
+    ("shr", "श्र"), ("shr", "श्र"),
+    # Aspirated consonants
+    ("kh", "ख"), ("gh", "घ"), ("chh", "छ"), ("ch", "च"),
+    ("jh", "झ"), ("th", "थ"), ("dh", "ध"),
+    ("ph", "फ"), ("bh", "भ"),
+    ("sh", "श"),
+    # Retroflex (approximations for colloquial Hindi)
+    ("tt", "ट्ट"), ("dd", "ड्ड"),
+    # Nasals
+    ("ng", "ंग"), ("nn", "न्न"), ("mm", "म्म"),
+    # Simple consonants
+    ("k", "क"), ("g", "ग"), ("c", "च"),
+    ("j", "ज"), ("t", "त"), ("d", "द"),
+    ("n", "न"), ("p", "प"), ("b", "ब"),
+    ("m", "म"), ("y", "य"), ("r", "र"),
+    ("l", "ल"), ("v", "व"), ("w", "व"),
+    ("s", "स"), ("h", "ह"), ("z", "ज़"),
+    ("f", "फ़"), ("q", "क़"), ("x", "क्स"),
+    # Vowels (long before short for greedy matching)
+    ("aa", "ा"), ("ee", "ी"), ("oo", "ू"),
+    ("ai", "ै"), ("au", "ौ"), ("ei", "ै"), ("ou", "ौ"),
+    ("a", ""), ("e", "े"), ("i", "ि"), ("o", "ो"), ("u", "ु"),
+]
+
+# Vowel matras (dependent forms)
+_VOWEL_MATRAS = {"ा", "ि", "ी", "ु", "ू", "े", "ै", "ो", "ौ", "ं", "ः", "ँ", ""}
+# Independent vowel forms (used at word-start)
+_INDEPENDENT_VOWELS: Dict[str, str] = {
+    "": "अ", "ा": "आ", "ि": "इ", "ी": "ई", "ु": "उ", "ू": "ऊ",
+    "े": "ए", "ै": "ऐ", "ो": "ओ", "ौ": "औ",
+}
+# Consonant Unicode range check
+_DEVA_CONSONANTS = set("कखगघङचछजझञटठडढणतथदधनपफबभमयरलवशषसह")
+
+
+def _transliterate_word_phonetic(word: str) -> str:
+    """
+    Phonetic transliteration for words NOT in the dictionary.
+    Uses improved rules that handle schwa correctly for colloquial Hindi.
+    """
+    word = word.lower()
+    result = []
+    i = 0
+    last_was_consonant = False
+
+    while i < len(word):
+        matched = False
+        # Try longest match first
+        for roman, deva in _PHONETIC_MAP:
+            if word[i:i+len(roman)] == roman:
+                is_vowel = deva in _VOWEL_MATRAS
+                if is_vowel:
+                    if not result:
+                        # Word-initial vowel → independent form
+                        result.append(_INDEPENDENT_VOWELS.get(deva, deva))
+                    elif last_was_consonant:
+                        if deva == "":
+                            # Implicit 'a' after consonant → add inherent schwa (no matra needed)
+                            pass
+                        else:
+                            result.append(deva)
+                    else:
+                        result.append(_INDEPENDENT_VOWELS.get(deva, deva))
+                    last_was_consonant = False
+                else:
+                    if last_was_consonant:
+                        # Add halant between consecutive consonants
+                        result.append("्")
+                    result.append(deva)
+                    last_was_consonant = True
+                i += len(roman)
+                matched = True
+                break
+        if not matched:
+            result.append(word[i])
+            last_was_consonant = False
+            i += 1
+
+    # Don't add trailing halant — Hindi words typically end with inherent schwa
+    return "".join(result)
+
+
 def roman_to_deva(text: str) -> str:
     """
-    Transliterate Roman-script Hinglish text to Devanagari using ITRANS scheme.
-    If indic-transliteration is unavailable, returns text unmodified.
+    Transliterate Roman-script Hinglish text to Devanagari using a Hinglish-aware
+    word-level dictionary with phonetic fallback for unknown words.
+
+    This replaces the previous ITRANS-based transliteration which mangled
+    colloquial input (e.g., kya→क्य instead of क्या).
     """
-    try:
-        from indic_transliteration import sanscript
-        from indic_transliteration.sanscript import transliterate
-        return transliterate(text.lower(), sanscript.ITRANS, sanscript.DEVANAGARI)
-    except ImportError:
+    if not text or not text.strip():
         return text
+
+    words = re.split(r'(\s+|[^\w]+)', text.lower())
+    result = []
+
+    for word in words:
+        if not word or not word.strip():
+            result.append(word)
+            continue
+
+        # Skip non-alphabetic tokens (punctuation, numbers)
+        if not any(c.isalpha() for c in word):
+            result.append(word)
+            continue
+
+        # Skip already-Devanagari tokens
+        if any("\u0900" <= c <= "\u097F" for c in word):
+            result.append(word)
+            continue
+
+        # Dictionary lookup first
+        lower = word.lower().strip()
+        if lower in _HINGLISH_DEVA_DICT:
+            result.append(_HINGLISH_DEVA_DICT[lower])
+        else:
+            # Phonetic fallback for unknown words
+            result.append(_transliterate_word_phonetic(lower))
+
+    return "".join(result)
 
 
 def normalize_and_transliterate(text: str) -> str:

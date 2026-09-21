@@ -281,6 +281,8 @@ class TranslationDataset(Dataset):
         source = item["source"]
         target = item["target"]
 
+        # IndicTrans2 requires language tags set before tokenization
+        self.tokenizer.src_lang = "hin_Deva"
         source_encoding = self.tokenizer(
             source,
             max_length=self.max_source_len,
@@ -289,6 +291,7 @@ class TranslationDataset(Dataset):
             return_tensors="pt",
         )
 
+        self.tokenizer.tgt_lang = "eng_Latn"
         with self.tokenizer.as_target_tokenizer():
             target_encoding = self.tokenizer(
                 target,
@@ -389,7 +392,7 @@ def main():
         predict_with_generate=True,
         generation_max_length=128,
         report_to="tensorboard",
-        dataloader_num_workers=2,
+        dataloader_num_workers=0,  # Must be 0 on Windows to avoid multiprocessing errors
     )
 
     # ── Data Collator ──

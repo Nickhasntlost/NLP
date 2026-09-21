@@ -1,156 +1,172 @@
 """
-evaluate_model.py — Evaluate fine-tuned IndicTrans2 with BLEU/METEOR/BERTScore
-================================================================================
-Run AFTER fine-tuning to get final metrics for the project report.
+evaluate_model.py — Evaluate Hinglish Translation Model with BLEU / chrF
+========================================================================
+Evaluates either the base RLM model or the fine-tuned LoRA adapter on
+the held-out YouTube Gold evaluation set.
 
 Usage:
     python evaluate_model.py
 """
 
+import sys
 import json
 import time
 from pathlib import Path
-
 import torch
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
-import evaluate
 
-BASE_DIR = Path(__file__).parent
+# Force UTF-8 output on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+
+BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-OUTPUT_DIR = BASE_DIR / "output"
-MODEL_NAME = "ai4bharat/indictrans2-indic-en-1B"
-ADAPTER_PATH = OUTPUT_DIR / "lora_adapter"
+EVAL_FILE = DATA_DIR / "youtube_eval_gold.jsonl"
+ADAPTER_PATH = BASE_DIR / "outputs" / "rlm_hinglish_lora"
+BASE_MODEL_NAME = "rudrashah/RLM-hinglish-translator"
+
+INFERENCE_TEMPLATE = "Hinglish:\n{source}\n\nEnglish:\n"
 
 
-def load_eval_data(filepath: str):
-    """Load evaluation JSONL with {source, target} pairs."""
+def load_eval_data(path: Path):
     data = []
-    with open(filepath, 'r', encoding='utf-8') as f:
+    with open(path, "r", encoding="utf-8") as f:
         for line in f:
-            entry = json.loads(line.strip())
-            source = entry.get("source", "").strip()
-            target = entry.get("target", "").strip()
-            if source and target:
-                data.append({"source": source, "target": target})
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            src = item.get("source", "").strip()
+            tgt = item.get("target", "").strip()
+            if src and tgt:
+                data.append({"id": item.get("id", len(data) + 1), "source": src, "target": tgt})
     return data
 
 
 def main():
-    print("=" * 70)
-    print("Model Evaluation — BLEU / METEOR / BERTScore")
-    print("=" * 70)
+    print("=" * 65)
+    print("  Hinglish -> English Model Evaluation")
+    print("=" * 65)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Device: {device}")
+    print(f"Device: {device.upper()}")
 
-    # Load tokenizer & base model
-    print("\nLoading base model...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    base_model = AutoModelForSeq2SeqLM.from_pretrained(
-        MODEL_NAME,
-        trust_remote_code=True,
+    # 1. Load Tokenizer & Model
+    print(f"\nLoading Tokenizer for {BASE_MODEL_NAME}...")
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_NAME)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    print(f"Loading Base Model...")
+    model = AutoModelForCausalLM.from_pretrained(
+        BASE_MODEL_NAME,
         torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+        device_map="auto" if device == "cuda" else None,
     )
 
-    # Load fine-tuned adapter
-    if ADAPTER_PATH.exists():
-        print(f"Loading LoRA adapter from {ADAPTER_PATH}...")
-        model = PeftModel.from_pretrained(base_model, str(ADAPTER_PATH))
-        model_name = "IndicTrans2 + LoRA (fine-tuned)"
+    # 2. Check for LoRA Adapter
+    if ADAPTER_PATH.exists() and (ADAPTER_PATH / "adapter_config.json").exists():
+        print(f"\n[+] Found fine-tuned LoRA adapter at: {ADAPTER_PATH}")
+        print("    Loading adapter weights on top of base model...")
+        model = PeftModel.from_pretrained(model, str(ADAPTER_PATH))
+        eval_label = "Fine-Tuned Model (RLM + Custom LoRA)"
     else:
-        print("No adapter found — evaluating BASE model")
-        model = base_model
-        model_name = "IndicTrans2 (baseline)"
+        print(f"\n[-] No LoRA adapter found at {ADAPTER_PATH}")
+        print("    Evaluating BASE model out-of-the-box...")
+        eval_label = "Base Model (rudrashah/RLM-hinglish-translator)"
 
-    model = model.to(device)
     model.eval()
 
-    # Load eval datasets
-    eval_files = {
-        "youtube_eval_gold": DATA_DIR / "youtube_eval_gold.jsonl",
-        "phinc_val": DATA_DIR / "phinc_val.jsonl",
-    }
+    # 3. Load Evaluation Data
+    if not EVAL_FILE.exists():
+        print(f"ERROR: Eval file not found: {EVAL_FILE}")
+        return
 
-    # Load metrics
-    sacrebleu = evaluate.load("sacrebleu")
-    meteor = evaluate.load("meteor")
-    bertscore = evaluate.load("bertscore")
+    eval_data = load_eval_data(EVAL_FILE)
+    print(f"\nLoaded {len(eval_data)} gold pairs from {EVAL_FILE.name}")
 
-    for eval_name, eval_path in eval_files.items():
-        if not eval_path.exists():
-            print(f"\nSkipping {eval_name} — file not found")
-            continue
+    print("\n" + "=" * 65)
+    print(f"  RUNNING INFERENCE ({eval_label})")
+    print("=" * 65)
 
-        data = load_eval_data(str(eval_path))
-        if not data:
-            continue
+    predictions = []
+    references = []
+    t_start = time.time()
 
-        print(f"\n{'─' * 50}")
-        print(f"Evaluating on: {eval_name} ({len(data)} pairs)")
-        print(f"Model: {model_name}")
-        print(f"{'─' * 50}")
+    for idx, item in enumerate(eval_data):
+        src = item["source"]
+        ref = item["target"]
+        prompt = INFERENCE_TEMPLATE.format(source=src)
 
-        predictions = []
-        references = []
-        t0 = time.time()
+        inputs = tokenizer(prompt, return_tensors="pt")
+        if device == "cuda":
+            inputs = {k: v.to(device) for k, v in inputs.items()}
 
-        for i, item in enumerate(data):
-            inputs = tokenizer(
-                item["source"],
-                return_tensors="pt",
-                max_length=128,
-                truncation=True,
-            ).to(device)
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=64,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id,
+            )
 
-            with torch.no_grad():
-                outputs = model.generate(**inputs, max_length=128, num_beams=5)
+        full_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        if "English:\n" in full_output:
+            pred = full_output.split("English:\n")[-1].strip()
+        else:
+            pred = full_output.replace(prompt, "").strip()
 
-            pred = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
-            predictions.append(pred)
-            references.append(item["target"].strip())
+        # Clean single trailing artifact if present
+        pred = pred.split("\n")[0].strip()
 
-            if i < 5:
-                print(f"  [{i+1}] {item['source'][:60]}...")
-                print(f"       Pred: {pred}")
-                print(f"       Gold: {item['target'][:60]}")
+        predictions.append(pred)
+        references.append(ref)
 
-        elapsed = time.time() - t0
-        print(f"\n  Inference time: {elapsed:.1f}s ({elapsed/len(data)*1000:.0f}ms/sample)")
+        if idx < 6:
+            print(f"[{idx+1}/{len(eval_data)}]")
+            print(f"  Source : {src}")
+            print(f"  Target : {ref}")
+            print(f"  Output : {pred}")
+            print("-" * 40)
 
-        # Compute metrics
-        bleu = sacrebleu.compute(
-            predictions=predictions,
-            references=[[r] for r in references],
-        )
-        met = meteor.compute(predictions=predictions, references=references)
-        bert = bertscore.compute(
-            predictions=predictions,
-            references=references,
-            lang="en",
-        )
+    elapsed = time.time() - t_start
+    print(f"\nInference completed in {elapsed:.1f}s ({elapsed/len(eval_data):.2f}s per sentence)")
 
-        print(f"\n  ┌─────────────────────────────┐")
-        print(f"  │ BLEU:      {bleu['score']:>6.2f}          │")
-        print(f"  │ METEOR:    {met['meteor']*100:>6.2f}%         │")
-        print(f"  │ BERTScore: {sum(bert['f1'])/len(bert['f1'])*100:>6.2f}% (F1)    │")
-        print(f"  └─────────────────────────────┘")
+    # 4. Compute Metrics
+    try:
+        import sacrebleu
+        bleu = sacrebleu.corpus_bleu(predictions, [[r] for r in references])
+        chrf = sacrebleu.corpus_chrf(predictions, [[r] for r in references])
 
-        # Save results
-        results = {
-            "model": model_name,
-            "eval_set": eval_name,
-            "num_samples": len(data),
-            "bleu": round(bleu["score"], 2),
-            "meteor": round(met["meteor"] * 100, 2),
-            "bertscore_f1": round(sum(bert["f1"]) / len(bert["f1"]) * 100, 2),
-        }
+        print("\n" + "=" * 65)
+        print("  EVALUATION RESULTS")
+        print("=" * 65)
+        print(f"  Model Evaluated : {eval_label}")
+        print(f"  Corpus BLEU     : {bleu.score:.2f}")
+        print(f"  chrF++ Score    : {chrf.score:.2f}")
+        print("=" * 65)
 
-        results_path = OUTPUT_DIR / f"eval_results_{eval_name}.json"
-        results_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(results_path, 'w') as f:
-            json.dump(results, f, indent=2)
-        print(f"  Results saved to: {results_path}")
+        # Save to file
+        out_file = BASE_DIR / "outputs" / "evaluation_report.json"
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "model": eval_label,
+                "dataset": EVAL_FILE.name,
+                "num_samples": len(eval_data),
+                "bleu": round(bleu.score, 2),
+                "chrf": round(chrf.score, 2),
+                "time_seconds": round(elapsed, 2),
+                "samples": [
+                    {"id": eval_data[i]["id"], "source": eval_data[i]["source"], "reference": references[i], "prediction": predictions[i]}
+                    for i in range(len(eval_data))
+                ]
+            }, f, indent=2)
+        print(f"\nDetailed evaluation report saved to: {out_file}")
+
+    except ImportError:
+        print("\nInstall sacrebleu (`pip install sacrebleu`) to compute automatic BLEU/chrF metrics.")
 
 
 if __name__ == "__main__":

@@ -43,6 +43,7 @@ models/lid_model/
 models/translation_model/
 models/checkpoints/
 models/*checkpoint*/
+**/checkpoints/
 **/pytorch_model.bin
 **/model.safetensors
 **/training_args.bin

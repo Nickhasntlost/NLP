@@ -100,8 +100,11 @@ def main():
         prompt = INFERENCE_TEMPLATE.format(source=src)
 
         inputs = tokenizer(prompt, return_tensors="pt")
+
         if device == "cuda":
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+            # Put inputs on the device where the model's input embeddings live.
+            input_device = model.get_input_embeddings().weight.device
+            inputs = {k: v.to(input_device) for k, v in inputs.items()}
 
         with torch.no_grad():
             outputs = model.generate(

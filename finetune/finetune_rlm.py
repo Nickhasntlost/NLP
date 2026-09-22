@@ -284,6 +284,7 @@ def main():
     )
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
+    model.config.use_cache = False
 
     # 4. Tokenize datasets
     print("\n[4/5] Preprocessing and Tokenizing data...")
@@ -301,7 +302,7 @@ def main():
         num_train_epochs=NUM_EPOCHS,
         per_device_train_batch_size=BATCH_SIZE,
         gradient_accumulation_steps=GRAD_ACCUM_STEPS,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         eval_steps=200,
         save_steps=200,
         save_total_limit=2,
@@ -310,7 +311,7 @@ def main():
         logging_steps=50,
         report_to="none",
         warmup_ratio=0.05,
-        optim="paged_adamw_8bit" if device == "cuda" else "adamw_torch",
+        optim="adamw_torch",
         remove_unused_columns=False,
     )
 

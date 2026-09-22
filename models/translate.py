@@ -97,7 +97,8 @@ def _load():
     else:
         _model = AutoModelForCausalLM.from_pretrained(
             MODEL_NAME,
-            torch_dtype=torch.float32,
+            torch_dtype=torch.float16,
+            low_cpu_mem_usage=True,
         )
 
     # Check for fine-tuned LoRA adapter

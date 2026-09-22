@@ -219,7 +219,7 @@ export default function App() {
           <div className={`text-output-area ${!result?.final_translation ? 'empty' : ''}`}>
             {loading ? (
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
-                <span className="spinner" /> Generating translation via IndicTrans2 1B...
+                <span className="spinner" /> Generating translation via RLM Hinglish Model (Gemma 2B)...
               </span>
             ) : result?.final_translation ? (
               result.final_translation
@@ -335,10 +335,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Step 4: Transliteration & Model 3 */}
+              {/* Step 4: Model 3 Translation */}
               <div className="telemetry-step-box">
                 <div className="step-label">
-                  <span>4. IndicTrans2 1B (Phase 4)</span>
+                  <span>4. RLM Hinglish Translator (Phase 4)</span>
                   <span className="step-time">{result.timing_ms?.translation_ms ?? 0} ms</span>
                 </div>
                 <div className="step-content">
@@ -364,7 +364,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="app-footer">
-        Beyond Words &bull; ai4bharat/indictrans2-indic-en-1B baseline &bull; Fast Rule & Neural Post-Processing &bull; End-to-End Hinglish MT
+        Beyond Words &bull; rudrashah/RLM-hinglish-translator (Gemma 2B) &bull; Fast Rule & Neural Post-Processing &bull; End-to-End Hinglish MT
       </footer>
     </div>
   );

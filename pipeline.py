@@ -37,7 +37,7 @@ from models.normalize import (
     normalize_tokens,
     roman_to_deva,
 )
-from models.translate import translate_devanagari
+from models.translate import translate, translate_devanagari
 from models.grammar import correct_grammar
 
 
@@ -198,23 +198,23 @@ def translate_pipeline(
     lid_tags = identify_languages(tokens, script_tags)
     timing["lid_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
-    # ── Stage 3: Model 2 — Normalization & Script Conversion (Phase 5) ──────
+    # ── Stage 3: Model 2 — Normalization & Orthographic Standardization (Phase 5)
     t0 = time.perf_counter()
     if lid_tags:
         normalized_hinglish = normalize_tokens(lid_tags)
     else:
         normalized_hinglish = text.strip()
 
-    # Transliterate to Devanagari if input is Roman-script
-    if is_roman_script(normalized_hinglish):
-        devanagari_input = roman_to_deva(normalized_hinglish)
-    else:
+    # If original input was already pure Devanagari, keep it; otherwise direct Roman MT
+    if not is_roman_script(normalized_hinglish):
         devanagari_input = normalized_hinglish
+    else:
+        devanagari_input = "N/A (Direct Roman MT)"
     timing["normalization_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
     # ── Stage 4: Model 3 — Machine Translation (Phase 4) ─────────────────────
     t0 = time.perf_counter()
-    raw_translation = translate_devanagari(devanagari_input)
+    raw_translation = translate(normalized_hinglish)
     timing["translation_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
     # ── Stage 5: Model 4 — Grammar & Fluency Correction (Phase 6) ───────────

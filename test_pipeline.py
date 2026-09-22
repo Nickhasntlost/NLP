@@ -49,7 +49,7 @@ def test_identify_languages():
 
 def test_pipeline_schema_conformance():
     """Verify PipelineResult adheres strictly to ARCHITECTURE.md §3 interface contract."""
-    with patch("pipeline.translate_devanagari", return_value="what are you doing today"):
+    with patch("pipeline.translate", return_value="what are you doing today"):
         result = translate_pipeline("Bhai kya kar raha hai?", use_neural_grammar=False)
 
     assert isinstance(result, PipelineResult)
@@ -81,9 +81,9 @@ def test_pipeline_schema_conformance():
 
 
 def test_pipeline_pure_devanagari():
-    """Verify that pure Devanagari input bypasses transliteration cleanly."""
+    """Verify that pure Devanagari input preserves Devanagari script in devanagari_input."""
     devanagari_sentence = "भाई क्या कर रहे हो?"
-    with patch("pipeline.translate_devanagari", return_value="brother what are you doing"):
+    with patch("pipeline.translate", return_value="brother what are you doing"):
         result = translate_pipeline(devanagari_sentence, use_neural_grammar=False)
 
     # Devanagari input should remain Devanagari
@@ -93,6 +93,6 @@ def test_pipeline_pure_devanagari():
 
 def test_translate_text_helper():
     """Verify the convenience helper translate_text."""
-    with patch("pipeline.translate_devanagari", return_value="today was a tiring day"):
+    with patch("pipeline.translate", return_value="today was a tiring day"):
         final_str = translate_text("aaj ka din thaka dene wala tha", use_neural_grammar=False)
     assert final_str == "Today was a tiring day."

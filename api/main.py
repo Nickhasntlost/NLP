@@ -111,9 +111,9 @@ def get_models_metadata() -> Dict[str, Any]:
                 "status": "deterministic off-the-shelf (R3.3 documented fallback)",
             },
             "model_3_translation": {
-                "name": "IndicTrans2 1B (hin_Deva -> eng_Latn)",
-                "base_model": "ai4bharat/indictrans2-indic-en-1B",
-                "status": "off-the-shelf (baseline retained due to domain mismatch on fine-tune per R3.1)",
+                "name": "RLM Hinglish-to-English Translator",
+                "base_model": "rudrashah/RLM-hinglish-translator",
+                "status": "off-the-shelf base with auto-detection for fine-tuned LoRA weights (R3.1)",
             },
             "model_4_grammar": {
                 "name": "Grammar & Fluency Post-Processor",

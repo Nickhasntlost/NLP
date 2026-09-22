@@ -1,68 +1,186 @@
 """
-translate.py — Hinglish → English inference wrapper
-====================================================
-Loads the baseline (pretrained, not fine-tuned)
-ai4bharat/indictrans2-indic-en-1B model and exposes a single
-translate(text: str) -> str function for Hinglish → English translation.
+translate.py — Hinglish -> English Inference Wrapper (Model 3)
+===============================================================
+Loads the 2B Gemma-based Hinglish translation model (`rudrashah/RLM-hinglish-translator`)
+with automatic detection for custom fine-tuned LoRA weights.
 
-Script-mismatch handling
-------------------------
-IndicTrans2-indic-en-1B expects Devanagari Hindi as input (it was trained on
-hin_Deva). Hinglish in our corpus is Roman-script (e.g. "Bhai kya kar raha
-hai"). This file therefore adds a lightweight pre-processing step:
+Exposes:
+    translate(text: str) -> str
 
-    Roman Hinglish  ─[ITRANS transliteration]→  Devanagari  ─[IndicTrans2]→  English
+Architecture:
+    Input (Roman Hinglish)  -->  [RLM-Hinglish-Translator (+ LoRA if available)]  -->  Output (English)
 
-The transliteration uses `indic-transliteration` (pure-Python, no GPU, no
-fairseq) with the ITRANS scheme. When the model receives well-formed Devanagari
-input it produces human-grade English (validated empirically). English loanwords
-in code-mixed input (e.g. "rice", "mood") are passed through as Latin tokens
-by IndicProcessor; IndicTrans2 handles them correctly in context.
-
-Dependencies (inference only — no training libs required):
-    pip install "transformers==4.47.0" torch sentencepiece sacremoses
-    pip install indic-transliteration
-    # IndicTransToolkit optional — falls back to models/indic_processor_py.py
-
-    Note: transformers must be pinned to 4.x. The IndicTrans2 custom tokenizer
-    (tokenization_indictrans.py) uses _special_tokens_map which was removed in
-    transformers 5.x. transformers 4.47.0 is the last compatible 4.x release.
-
-Usage:
-    from models.translate import translate
-    print(translate("Bhai kya kar raha hai aajkal?"))
-
-Or run directly:
-    python models/translate.py
+Automatic LoRA Detection:
+    Checks for fine-tuned LoRA adapter in:
+      1. finetune/outputs/rlm_hinglish_lora/
+      2. models/lora_adapter/
+    If found, seamlessly overlays adapter weights onto the base model.
+    Otherwise, runs the high-quality base model directly.
 """
 
-import re
+import os
+import sys
 import time
 import warnings
+from pathlib import Path
+from typing import Optional
 
-# ── Silence non-critical transformers warnings at load time ───────────────────
+# Silence non-critical transformers warnings
 warnings.filterwarnings("ignore", message="Some weights of the model checkpoint")
 warnings.filterwarnings("ignore", message="You are using a model of type")
 
-MODEL_NAME = "ai4bharat/indictrans2-indic-en-1B"
-SRC_LANG   = "hin_Deva"
-TGT_LANG   = "eng_Latn"
+# Force UTF-8 on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
 
-# ── Module-level singletons — loaded once, reused per translate() call ────────
-_model      = None
-_tokenizer  = None
-_ip         = None          # IndicProcessor instance
-_tgt_bos_id = None
-_device     = None
+MODEL_NAME = "rudrashah/RLM-hinglish-translator"
+INFERENCE_TEMPLATE = "Hinglish:\n{source}\n\nEnglish:\n"
 
-# ── Roman → Devanagari transliteration helpers ────────────────────────────────
+# Search paths for custom trained LoRA adapters
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ADAPTER_CANDIDATE_PATHS = [
+    _PROJECT_ROOT / "finetune" / "outputs" / "rlm_hinglish_lora",
+    _PROJECT_ROOT / "models" / "lora_adapter",
+]
 
-def _is_roman_script(text: str) -> bool:
+# Module-level singletons (lazy loaded on first inference)
+_model = None
+_tokenizer = None
+_device = None
+_active_model_desc = "uninitialized"
+
+
+def _get_adapter_path() -> Optional[Path]:
+    """Return path to fine-tuned LoRA adapter if it exists and is valid."""
+    for candidate in ADAPTER_CANDIDATE_PATHS:
+        if candidate.exists() and (candidate / "adapter_config.json").exists():
+            return candidate
+    return None
+
+
+def _load():
     """
-    Return True when the input is predominantly Latin/Roman-script (Hinglish).
-    Threshold: >50% of alphabetic characters are ASCII.
-    Pure Devanagari input will correctly return False and skip transliteration.
+    Load tokenizer and causal language model.
+    Lazy-loaded on first translate() call.
     """
+    global _model, _tokenizer, _device, _active_model_desc
+
+    import torch
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+
+    _device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    print("=" * 60)
+    print("  Model 3: Hinglish -> English Translation Engine")
+    print(f"  Base Model : {MODEL_NAME}")
+    print(f"  Device     : {_device.upper()}")
+    if _device == "cpu":
+        print("  NOTE: Running on CPU. Inference takes ~2-5s per sentence.")
+    print("=" * 60)
+
+    t0 = time.time()
+    print("  [1/2] Loading tokenizer...", flush=True)
+    _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    if _tokenizer.pad_token_id is None:
+        _tokenizer.pad_token_id = _tokenizer.eos_token_id
+    print(f"        Tokenizer ready ({time.time() - t0:.1f}s)", flush=True)
+
+    t0 = time.time()
+    print("  [2/2] Loading model weights...", flush=True)
+
+    if _device == "cuda":
+        _model = AutoModelForCausalLM.from_pretrained(
+            MODEL_NAME,
+            torch_dtype=torch.float16,
+            device_map="auto",
+        )
+    else:
+        _model = AutoModelForCausalLM.from_pretrained(
+            MODEL_NAME,
+            torch_dtype=torch.float32,
+        )
+
+    # Check for fine-tuned LoRA adapter
+    adapter_path = _get_adapter_path()
+    if adapter_path:
+        try:
+            from peft import PeftModel
+            print(f"        [+] Custom LoRA adapter found: {adapter_path}")
+            print("        Overlaying fine-tuned weights...", flush=True)
+            _model = PeftModel.from_pretrained(_model, str(adapter_path))
+            _active_model_desc = f"{MODEL_NAME} + LoRA ({adapter_path.name})"
+        except Exception as e:
+            print(f"        [!] Warning: Failed to load LoRA adapter: {e}")
+            print("        Falling back to base model.")
+            _active_model_desc = f"{MODEL_NAME} (base)"
+    else:
+        _active_model_desc = f"{MODEL_NAME} (base)"
+
+    _model.eval()
+    print(f"        Model ready: {_active_model_desc} ({time.time() - t0:.1f}s)", flush=True)
+    print("=" * 60)
+
+
+def translate(text: str) -> str:
+    """
+    Translate a Roman Hinglish, Devanagari Hindi, or code-mixed string to English.
+
+    Args:
+        text: Input text (e.g., 'ye project aisa bana hai')
+
+    Returns:
+        Translated English sentence string.
+    """
+    global _model, _tokenizer, _device
+
+    if not text or not text.strip():
+        return ""
+
+    if _model is None:
+        _load()
+
+    import torch
+
+    clean_text = text.strip()
+    prompt = INFERENCE_TEMPLATE.format(source=clean_text)
+
+    inputs = _tokenizer(prompt, return_tensors="pt")
+    if _device == "cuda":
+        inputs = {k: v.to(_device) for k, v in inputs.items()}
+
+    with torch.no_grad():
+        outputs = _model.generate(
+            **inputs,
+            max_new_tokens=96,
+            do_sample=False,
+            pad_token_id=_tokenizer.eos_token_id,
+        )
+
+    full_output = _tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    # Extract target following 'English:\n'
+    if "English:\n" in full_output:
+        raw_pred = full_output.split("English:\n")[-1].strip()
+    else:
+        raw_pred = full_output.replace(prompt, "").strip()
+
+    # Take first paragraph/line and clean any stray quotes
+    pred_line = raw_pred.split("\n")[0].strip()
+    if pred_line.startswith('"') and pred_line.endswith('"'):
+        pred_line = pred_line[1:-1].strip()
+
+    return pred_line
+
+
+# ── Backward-Compatibility Helpers ───────────────────────────────────────────
+
+def translate_devanagari(text: str) -> str:
+    """Alias for translate() to maintain full compatibility with existing callers."""
+    return translate(text)
+
+
+def is_roman_script(text: str) -> bool:
+    """Return True if text is predominantly Latin/Roman alphabet."""
     alpha = [c for c in text if c.isalpha()]
     if not alpha:
         return False
@@ -70,255 +188,39 @@ def _is_roman_script(text: str) -> bool:
     return latin / len(alpha) > 0.5
 
 
-def _roman_to_deva(text: str) -> str:
-    """
-    Transliterate a Roman-script Hinglish sentence to Devanagari using the
-    ITRANS scheme via the `indic-transliteration` package (pure-Python).
-
-    English loanwords embedded in Hinglish (e.g. "rice", "phone", "mood") are
-    also transliterated to approximate Devanagari syllables (e.g. "रिचे",
-    "मूद्"); IndicTrans2 handles these gracefully in context and produces
-    correct English output for the surrounding sentence.
-
-    The function lower-cases the text before transliterating because ITRANS is
-    case-sensitive and informal Hinglish uses inconsistent capitalisation.
-    """
+def roman_to_deva(text: str) -> str:
+    """Optional phonetic converter retained for utility fallback."""
     try:
         from indic_transliteration import sanscript
         from indic_transliteration.sanscript import transliterate
         return transliterate(text.lower(), sanscript.ITRANS, sanscript.DEVANAGARI)
     except ImportError:
-        # indic-transliteration not installed — return text unchanged.
-        # The model will still run; quality will degrade for Roman-script input.
         return text
 
 
-def _load():
-    """
-    Load the model, tokenizer, and IndicProcessor.
-    Called once on first translate() invocation (lazy load).
-    Prints progress markers so the user knows a load is in progress,
-    not a hang — the 1B model takes 2-5 minutes on CPU, 30-60s on GPU.
-    """
-    global _model, _tokenizer, _ip, _tgt_bos_id, _device
+def get_model_status() -> dict:
+    """Return current model metadata and adapter status."""
+    adapter_path = _get_adapter_path()
+    return {
+        "base_model": MODEL_NAME,
+        "is_loaded": _model is not None,
+        "device": _device or "not loaded",
+        "has_lora_adapter": adapter_path is not None,
+        "adapter_path": str(adapter_path) if adapter_path else None,
+        "active_description": _active_model_desc,
+    }
 
-    import torch
-    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-    try:
-        from IndicTransToolkit import IndicProcessor
-        _use_real_ip = True
-    except ImportError:
-        # IndicTransToolkit needs Cython+MSVC on Windows.
-        # Fall back to pure-Python port (indic_processor_py.py).
-        try:
-            import sys as _sys, os as _os
-            _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
-            from indic_processor_py import IndicProcessor  # type: ignore
-            _use_real_ip = True
-            print('  NOTE: Using pure-Python IndicProcessor (full transliteration active).')
-        except Exception as _ip_err:
-            _use_real_ip = False
-            print('  NOTE: IndicProcessor unavailable; using bare fallback.')
-            class IndicProcessor:  # type: ignore
-                def preprocess_batch(self, texts, src_lang, tgt_lang, **kw):
-                    return [src_lang + ' ' + tgt_lang + ' ' + t for t in texts]
-                def postprocess_batch(self, texts, lang, **kw):
-                    import re as _re
-                    return [_re.sub(r'>>[a-z_]+<<', '', t).strip() for t in texts]
-
-
-    _device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    print("=" * 60)
-    print("  IndicTrans2 1B — Loading model from Hugging Face")
-    print(f"  Model : {MODEL_NAME}")
-    print(f"  Device: {_device.upper()}")
-    if _device == "cpu":
-        print()
-        print("  WARNING: No GPU detected. Running on CPU.")
-        print("  Model load will take ~3-6 minutes on a typical laptop.")
-        print("  Each sentence will take ~30-90 seconds to translate.")
-        print("  This is expected — not a hang. Please wait.")
-    print("=" * 60)
-
-    t0 = time.time()
-
-    print("  [1/3] Loading tokenizer...", flush=True)
-    _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    print(f"        done ({time.time()-t0:.1f}s)", flush=True)
-
-    print("  [2/3] Loading model weights (~2-4 GB download on first run)...", flush=True)
-    _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    _model.to(_device)
-    _model.eval()
-    print(f"        done ({time.time()-t0:.1f}s)", flush=True)
-
-    print("  [3/3] Initialising IndicProcessor...", flush=True)
-    if _use_real_ip:
-        _ip = IndicProcessor(inference=True)
-    else:
-        _ip = IndicProcessor()   # our fallback class, no args needed
-    print(f"        done ({time.time()-t0:.1f}s)", flush=True)
-
-    # Restore as_target_tokenizer() if the installed transformers version removed it
-    from contextlib import contextmanager as _cm
-    if not hasattr(_tokenizer, "as_target_tokenizer"):
-        if hasattr(_tokenizer, "_tgt_tokenize"):
-            @_cm
-            def _as_tgt(tok=_tokenizer):
-                _orig = tok._tokenize
-                tok._tokenize = tok._tgt_tokenize
-                try:
-                    yield
-                finally:
-                    tok._tokenize = _orig
-            _tokenizer.as_target_tokenizer = _as_tgt
-        else:
-            from contextlib import nullcontext
-            _tokenizer.as_target_tokenizer = lambda: nullcontext()
-
-    # Resolve the forced BOS token ID for English output
-    _tgt_bos_id = None
-    for _lang_str in [TGT_LANG, f"[{TGT_LANG}]", f"<{TGT_LANG}>"]:
-        _candidate = _tokenizer.convert_tokens_to_ids(_lang_str)
-        _unk = getattr(_tokenizer, "unk_token_id", None)
-        if _candidate is not None and _candidate != _unk:
-            _tgt_bos_id = _candidate
-            break
-
-    total = time.time() - t0
-    print()
-    print(f"  Model ready. Load time: {total:.1f}s")
-    print("=" * 60)
-
-
-def translate_devanagari(deva_text: str) -> str:
-    """
-    Translate a Devanagari Hindi sentence directly to English using IndicTrans2 1B.
-    Assumes the input is already in Devanagari script (hin_Deva).
-
-    Args:
-        deva_text: Input sentence in Devanagari script.
-
-    Returns:
-        Raw English translation string.
-    """
-    import torch
-
-    if not deva_text or not deva_text.strip():
-        return ""
-
-    if _model is None:
-        _load()
-
-    # IndicProcessor normalisation & language tagging
-    preprocessed = _ip.preprocess_batch([deva_text], src_lang=SRC_LANG, tgt_lang=TGT_LANG)
-
-    inputs = _tokenizer(
-        preprocessed,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=128,
-    ).to(_device)
-
-    with torch.no_grad():
-        output_ids = _model.generate(
-            **inputs,
-            forced_bos_token_id=_tgt_bos_id,
-            num_beams=4,
-            max_new_tokens=128,
-            early_stopping=True,
-            use_cache=False,          # Required: IndicTrans2 custom decoder breaks with new Cache API
-            repetition_penalty=1.2,   # Prevents repetition collapse on OOV/slang tokens
-            no_repeat_ngram_size=3,   # Prevents n-gram repetition loops
-        )
-
-    with _tokenizer.as_target_tokenizer():
-        decoded_raw = _tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-
-    # Postprocess: IndicProcessor denormalises entities and numbers
-    decoded = _ip.postprocess_batch(decoded_raw, lang=TGT_LANG)
-
-    # Strip leading period/dot/whitespace artifact introduced by IndicProcessor
-    result = re.sub(r"^[.\s]+", "", decoded[0]).strip()
-    return result
-
-
-def translate(text: str) -> str:
-    """
-    Translate a single Hinglish sentence to English.
-
-    The pipeline handles both Roman-script Hinglish ("Bhai kya kar raha hai")
-    and Devanagari Hindi ("भाई क्या कर रहा है") transparently:
-      1. If input is predominantly Latin/Roman-script, it is first transliterated
-         to Devanagari (ITRANS scheme) so IndicTrans2 receives its expected script.
-      2. IndicProcessor normalises and language-tags the Devanagari sentence.
-      3. IndicTrans2 1B generates the English translation.
-
-    Args:
-        text: Input sentence in Hinglish (Roman-script or Devanagari or mixed).
-
-    Returns:
-        English translation string (leading punctuation artifacts removed).
-
-    Example:
-        >>> from models.translate import translate
-        >>> translate("Bhai kya kar raha hai?")
-        'what are you doing today?'
-    """
-    if not text or not text.strip():
-        return ""
-
-    # ── Step 1: Model 2 Normalization & Script Conversion ─────────────────────
-    # Normalizes character elongations, colloquial slang, and spelling variants,
-    # then converts Roman Hinglish to Devanagari (or bypasses if already Devanagari)
-    # so IndicTrans2 receives clean, canonical Devanagari input.
-    try:
-        from models.normalize import normalize_and_transliterate
-        text = normalize_and_transliterate(text)
-    except Exception:
-        if _is_roman_script(text):
-            text = _roman_to_deva(text)
-
-    return translate_devanagari(text)
-
-
-# ── CLI test harness ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import sys
-    sys.stdout.reconfigure(encoding="utf-8")
-
-    TEST_SENTENCES = [
-        # Benchmark set: informal Hinglish (Roman-script)
+    test_phrases = [
+        "ye project aisa bana hai",
         "Bhai kya kar raha hai aajkal?",
-        "Aaj ka din bahut zyada thaka dene wala tha.",
-        "Sir aap bahut achha padhate ho, mujhe samajh aa gaya.",
-        "Yaar main rice khate hue dekh rahi thi aur mera mood kharab ho gaya.",
-        # Sanity check: pure Devanagari (should also work correctly)
-        "\u092d\u093e\u0908 \u0915\u094d\u092f\u093e \u0915\u0930 \u0930\u0939\u093e \u0939\u0948 \u0906\u091c\u0915\u0932?",
+        "sir aap bahut achha padhate ho, mujhe samajh aa gaya",
+        "video bahut informative thi bhai",
     ]
-
-    print()
-    print("Running local inference test — 5 sentences (4 Hinglish + 1 Devanagari)")
-    print("Load time is included in the first sentence's elapsed time.")
-    print()
-
-    load_start = time.time()
-    for i, sentence in enumerate(TEST_SENTENCES, 1):
-        t0 = time.time()
-        result = translate(sentence)
-        elapsed = time.time() - t0
-
-        script = "[Deva]" if not _is_roman_script(sentence) else "[Roman]"
-        print(f"[{i}] {script} SRC : {sentence}")
-        print(f"         OUT : {result}")
-        if i == 1:
-            print(f"         TIME: {elapsed:.1f}s (includes model load)")
-        else:
-            print(f"         TIME: {elapsed:.1f}s")
-        print()
-
-    total_elapsed = time.time() - load_start
-    print(f"Total wall-clock time (load + 5 translations): {total_elapsed:.1f}s")
+    print("Testing Translation Module directly:")
+    for phrase in test_phrases:
+        res = translate(phrase)
+        print(f"Hinglish : {phrase}")
+        print(f"English  : {res}")
+        print("-" * 50)

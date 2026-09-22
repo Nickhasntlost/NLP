@@ -47,7 +47,7 @@ def test_models_metadata():
 
 def test_translate_endpoint_mocked():
     """Translate endpoint accepts Hinglish text and returns full PipelineResult schema."""
-    with patch("pipeline.translate_devanagari", return_value="what are you doing today"):
+    with patch("pipeline.translate", return_value="what are you doing today"):
         payload = {
             "text": "Bhai kya kar raha hai?",
             "use_neural_grammar": False,
